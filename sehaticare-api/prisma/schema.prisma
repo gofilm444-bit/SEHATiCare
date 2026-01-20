@@ -1,0 +1,287 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ai_events {
+  id              String        @id @db.Uuid
+  consultation_id String        @db.Uuid
+  trigger         String
+  request_payload Json
+  response_text   String?
+  created_at      DateTime      @default(now())
+  consultations   consultations @relation(fields: [consultation_id], references: [id])
+}
+
+model audit_events {
+  id              String     @id @db.Uuid
+  created_at      DateTime   @default(now())
+  actor_user_id   String?    @db.Uuid
+  actor_role      user_role?
+  action          String
+  consultation_id String?    @db.Uuid
+  meta_json       Json?
+
+  @@index([action, created_at])
+  @@index([actor_user_id, created_at])
+  @@index([consultation_id, created_at])
+}
+
+model audit_logs {
+  id            String   @id @db.Uuid
+  actor_user_id String?  @db.Uuid
+  action        String
+  entity_type   String
+  entity_id     String   @db.Uuid
+  meta          Json
+  ip_address    String?
+  user_agent    String?
+  created_at    DateTime @default(now())
+  users         users?   @relation(fields: [actor_user_id], references: [id])
+}
+
+model chat_messages {
+  id              String           @id @db.Uuid
+  consultation_id String           @db.Uuid
+  sender_role     chat_sender_role
+  sender_user_id  String?          @db.Uuid
+  content         String
+  created_at      DateTime         @default(now())
+  consultations   consultations    @relation(fields: [consultation_id], references: [id])
+
+  @@index([consultation_id, created_at])
+}
+
+model consultation_messages {
+  id              String        @id @db.Uuid
+  consultation_id String        @db.Uuid
+  sender          sender_type
+  sender_user_id  String?       @db.Uuid
+  type            message_type
+  content_text    String?
+  voice_note_id   String?       @unique @db.Uuid
+  created_at      DateTime      @default(now())
+  deleted_at      DateTime?
+  consultations   consultations @relation(fields: [consultation_id], references: [id])
+  users           users?        @relation(fields: [sender_user_id], references: [id])
+  voice_notes     voice_notes?  @relation(fields: [voice_note_id], references: [id])
+
+  @@index([consultation_id, created_at(sort: Desc)])
+}
+
+model consultation_participants {
+  id              String        @id @db.Uuid
+  consultation_id String        @db.Uuid
+  user_id         String        @db.Uuid
+  role            user_role
+  joined_at       DateTime      @default(now())
+  left_at         DateTime?
+  consultations   consultations @relation(fields: [consultation_id], references: [id])
+  users           users         @relation(fields: [user_id], references: [id])
+
+  @@unique([consultation_id, user_id])
+}
+
+model consultations {
+  id                                            String                       @id @db.Uuid
+  patient_id                                    String                       @db.Uuid
+  assignedDoctorId                              String?                      @map("doctor_id") @db.Uuid
+  status                                        consultation_status          @default(MENUNGGU_DOKTER)
+  initial_complaint                             String
+  opened_at                                     DateTime                     @default(now())
+  doctor_joined_at                              DateTime?
+  closed_at                                     DateTime?
+  closed_by                                     String?                      @db.Uuid
+  created_at                                    DateTime                     @default(now())
+  updated_at                                    DateTime
+  closeRequested                                Boolean                      @default(false)
+  closeRequestedAt                              DateTime?
+  closeRequestedById                            String?                      @db.Uuid
+  closedReason                                  String?
+  consent_at                                    DateTime?
+  consent_version                               String?
+  priority                                      Int                          @default(0)
+  red_flag                                      Boolean                      @default(false)
+  red_flag_reason                               String?
+  ai_events                                     ai_events[]
+  chat_messages                                 chat_messages[]
+  consultation_messages                         consultation_messages[]
+  consultation_participants                     consultation_participants[]
+  users_consultations_closeRequestedByIdTousers users?                       @relation("consultations_closeRequestedByIdTousers", fields: [closeRequestedById], references: [id])
+  users_consultations_closed_byTousers          users?                       @relation("consultations_closed_byTousers", fields: [closed_by], references: [id])
+  assignedDoctor                                users?                       @relation("consultations_doctor_idTousers", fields: [assignedDoctorId], references: [id])
+  patient                                       users                        @relation("consultations_patient_idTousers", fields: [patient_id], references: [id])
+  voice_note_upload_sessions                    voice_note_upload_sessions[]
+  voice_notes                                   voice_notes[]
+
+  @@index([assignedDoctorId, opened_at(sort: Desc)])
+  @@index([patient_id, opened_at(sort: Desc)])
+  @@index([status, opened_at])
+}
+
+model doctor_profiles {
+  user_id                                  String                     @id @db.Uuid
+  verification_status                      doctor_verification_status @default(PENDING)
+  verified_at                              DateTime?
+  verified_by                              String?                    @db.Uuid
+  puskesmas_name                           String?
+  str_number                               String?
+  created_at                               DateTime                   @default(now())
+  updated_at                               DateTime
+  users_doctor_profiles_user_idTousers     users                      @relation("doctor_profiles_user_idTousers", fields: [user_id], references: [id])
+  users_doctor_profiles_verified_byTousers users?                     @relation("doctor_profiles_verified_byTousers", fields: [verified_by], references: [id])
+
+  @@index([verification_status])
+}
+
+model education_articles {
+  id                                         String    @id @db.Uuid
+  title                                      String
+  slug                                       String    @unique
+  body_markdown                              String
+  is_published                               Boolean   @default(false)
+  published_at                               DateTime?
+  created_by                                 String?   @db.Uuid
+  updated_by                                 String?   @db.Uuid
+  created_at                                 DateTime  @default(now())
+  updated_at                                 DateTime
+  users_education_articles_created_byTousers users?    @relation("education_articles_created_byTousers", fields: [created_by], references: [id])
+  users_education_articles_updated_byTousers users?    @relation("education_articles_updated_byTousers", fields: [updated_by], references: [id])
+}
+
+model otp_requests {
+  id            String      @id @db.Uuid
+  phone_e164    String?
+  email         String?
+  purpose       otp_purpose
+  otp_hash      String
+  otp_salt      String
+  expires_at    DateTime
+  verified_at   DateTime?
+  attempt_count Int         @default(0)
+  ip_address    String?
+  user_agent    String?
+  created_at    DateTime    @default(now())
+
+  @@index([email, created_at])
+  @@index([phone_e164, created_at])
+}
+
+model refresh_tokens {
+  id         String    @id @db.Uuid
+  user_id    String    @db.Uuid
+  token_hash String
+  expires_at DateTime
+  revoked_at DateTime?
+  created_at DateTime  @default(now())
+  users      users     @relation(fields: [user_id], references: [id])
+}
+
+model users {
+  id                                                      String                       @id @db.Uuid
+  role                                                    user_role                    @default(PASIEN)
+  phone_e164                                              String?                      @unique
+  email                                                   String?                      @unique
+  full_name                                               String
+  is_active                                               Boolean                      @default(true)
+  created_at                                              DateTime                     @default(now())
+  updated_at                                              DateTime
+  password_hash                                           String?
+  audit_logs                                              audit_logs[]
+  consultation_messages                                   consultation_messages[]
+  consultation_participants                               consultation_participants[]
+  consultations_consultations_closeRequestedByIdTousers   consultations[]              @relation("consultations_closeRequestedByIdTousers")
+  consultations_consultations_closed_byTousers            consultations[]              @relation("consultations_closed_byTousers")
+  consultations_consultations_doctor_idTousers            consultations[]              @relation("consultations_doctor_idTousers")
+  consultations_consultations_patient_idTousers           consultations[]              @relation("consultations_patient_idTousers")
+  doctor_profiles_doctor_profiles_user_idTousers          doctor_profiles?             @relation("doctor_profiles_user_idTousers")
+  doctor_profiles_doctor_profiles_verified_byTousers      doctor_profiles[]            @relation("doctor_profiles_verified_byTousers")
+  education_articles_education_articles_created_byTousers education_articles[]         @relation("education_articles_created_byTousers")
+  education_articles_education_articles_updated_byTousers education_articles[]         @relation("education_articles_updated_byTousers")
+  refresh_tokens                                          refresh_tokens[]
+  voice_note_upload_sessions                              voice_note_upload_sessions[]
+  voice_notes                                             voice_notes[]
+}
+
+model voice_note_upload_sessions {
+  id               String        @id @db.Uuid
+  consultation_id  String        @db.Uuid
+  requested_by     String        @db.Uuid
+  storage_provider String
+  storage_key      String
+  upload_url       String
+  expires_at       DateTime
+  committed_at     DateTime?
+  created_at       DateTime      @default(now())
+  consultations    consultations @relation(fields: [consultation_id], references: [id])
+  users            users         @relation(fields: [requested_by], references: [id])
+}
+
+model voice_notes {
+  id                    String                 @id @db.Uuid
+  consultation_id       String                 @db.Uuid
+  uploaded_by           String                 @db.Uuid
+  storage_provider      String
+  storage_key           String
+  content_type          String
+  file_size_bytes       Int
+  stt_status            String?
+  transcript_text       String?
+  stt_engine            String?
+  stt_error             String?
+  created_at            DateTime               @default(now())
+  updated_at            DateTime
+  deleted_at            DateTime?
+  consultation_messages consultation_messages?
+  consultations         consultations          @relation(fields: [consultation_id], references: [id])
+  users                 users                  @relation(fields: [uploaded_by], references: [id])
+
+  @@index([consultation_id, created_at])
+}
+
+enum user_role {
+  PASIEN
+  DOKTER
+  ADMIN
+  AI
+}
+
+enum doctor_verification_status {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum consultation_status {
+  MENUNGGU_DOKTER
+  AI_AKTIF
+  DOKTER_AKTIF
+  SELESAI
+}
+
+enum message_type {
+  TEXT
+  AI_TEXT
+  VOICE_NOTE
+}
+
+enum sender_type {
+  PASIEN
+  DOKTER
+  AI
+  SYSTEM
+}
+
+enum otp_purpose {
+  LOGIN
+}
+
+enum chat_sender_role {
+  PASIEN
+  DOKTER
+  AI
+}

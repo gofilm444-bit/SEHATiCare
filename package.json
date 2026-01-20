@@ -1,0 +1,17 @@
+{
+  "name": "sehaticare",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix sehaticare-api run dev",
+    "build": "npm --prefix sehaticare-api run build",
+    "start": "npm --prefix sehaticare-api start",
+    "seed": "npm --prefix sehaticare-api run seed",
+    "prisma:generate": "npm --prefix sehaticare-api run prisma:generate",
+    "prisma:migrate": "npm --prefix sehaticare-api run prisma:migrate",
+    "lint": "npm --prefix sehaticare-api run lint",
+    "test": "npm --prefix sehaticare-api test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import { jwtPlugin } from './plugins/jwt';
 import { rateLimitPlugin } from './plugins/rateLimit';
 import swaggerPlugin from './plugins/swagger';
@@ -26,6 +27,12 @@ export async function buildApp() {
         'body.otp'
       ]
     }
+  });
+
+  await app.register(cors, {
+    origin: ['http://localhost:5173'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true
   });
 
   app.setErrorHandler((error, _request, reply) => {

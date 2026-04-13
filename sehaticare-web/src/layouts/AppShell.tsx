@@ -11,7 +11,8 @@ const navItems: { label: string; path: string; roles: UserRole[]; description?: 
   { label: 'Edukasi', path: '/patient/education', roles: ['PASIEN'], description: 'Artikel kesehatan' },
   { label: 'Antrian Konsultasi', path: '/doctor', roles: ['DOKTER'], description: 'Daftar pasien menunggu' },
   { label: 'Riwayat Saya', path: '/doctor/history', roles: ['DOKTER'], description: 'Konsultasi selesai' },
-  { label: 'Dashboard Admin', path: '/admin', roles: ['ADMIN'], description: 'Kendali sistem & audit' }
+  { label: 'Dashboard Admin', path: '/admin', roles: ['ADMIN'], description: 'Kendali sistem & audit' },
+  { label: 'Dashboard Pendamping', path: '/pendamping', roles: ['PENDAMPING'], description: 'Antrian tugas harian' }
 ];
 
 export function AppShell() {
@@ -29,8 +30,12 @@ export function AppShell() {
     <div className="flex min-h-screen bg-slate-50">
       <aside className="hidden w-72 flex-col border-r border-slate-200 bg-white/90 backdrop-blur md:flex">
         <div className="flex items-center gap-2 px-6 py-5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand text-white font-bold shadow-inner">
-            SC
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-inner">
+            <img
+              src="/brand/logo-sehaticare.png"
+              alt="SEHATiCare"
+              className="h-8 w-8 object-contain"
+            />
           </div>
           <div>
             <p className="text-sm font-semibold text-slate-900">SEHATiCare</p>

@@ -1,0 +1,567 @@
+--- a/sehaticare-web/src/layouts/AppShell.tsx
++++ b/sehaticare-web/src/layouts/AppShell.tsx
+@@ -30,8 +30,12 @@
+     <div className="flex min-h-screen bg-slate-50">
+       <aside className="hidden w-72 flex-col border-r border-slate-200 bg-white/90 backdrop-blur md:flex">
+         <div className="flex items-center gap-2 px-6 py-5">
+-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand text-white font-bold shadow-inner">
+-            SC
++          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-inner">
++            <img
++              src="/brand/logo-sehaticare.png"
++              alt="SEHATiCare"
++              className="h-8 w-8 object-contain"
++            />
+           </div>
+           <div>
+             <p className="text-sm font-semibold text-slate-900">SEHATiCare</p>
+--- a/sehaticare-web/src/pages/public/PublicLandingPage.tsx
++++ b/sehaticare-web/src/pages/public/PublicLandingPage.tsx
+@@ -61,8 +61,12 @@
+       <div className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-4 pb-24 pt-12 md:px-8 md:pb-12">
+         <header className="flex flex-col gap-6 rounded-2xl border border-slate-200 bg-white/80 p-8 shadow-sm">
+           <div className="flex items-center gap-3">
+-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-lg font-semibold text-white">
+-              SC
++            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm">
++              <img
++                src="/brand/logo-sehaticare.png"
++                alt="SEHATiCare"
++                className="h-10 w-10 object-contain"
++              />
+             </div>
+             <div>
+               <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Portal Publik</p>
+--- a/sehaticare-web/src/pages/LoginPage.tsx
++++ b/sehaticare-web/src/pages/LoginPage.tsx
+@@ -6,6 +6,13 @@
+     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 px-4">
+       <Card className="w-full max-w-md shadow-lg">
+         <CardHeader>
++          <div className="flex justify-center">
++            <img
++              src="/brand/logo-sehaticare.png"
++              alt="SEHATiCare"
++              className="h-14 w-14 object-contain"
++            />
++          </div>
+           <CardTitle>Masuk ke SEHATiCare</CardTitle>
+           <CardDescription>Gunakan akun pasien, dokter, atau admin yang sudah disediakan.</CardDescription>
+         </CardHeader>
+diff --git a/sehaticare-web/public/brand/logo-sehaticare.png b/sehaticare-web/public/brand/logo-sehaticare.png
+new file mode 100644
+index 0000000..0000000
+Binary files /dev/null and b/sehaticare-web/public/brand/logo-sehaticare.png differ
+--- a/sehaticare-web/src/pages/public/PublicLandingPage.tsx
++++ b/sehaticare-web/src/pages/public/PublicLandingPage.tsx
+@@ -60,12 +60,12 @@
+     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+       <div className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-4 pb-24 pt-12 md:px-8 md:pb-12">
+         <header className="flex flex-col gap-6 rounded-2xl border border-slate-200 bg-white/80 p-8 shadow-sm">
+-          <div className="flex items-center gap-3">
+-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm">
++          <div className="flex items-center gap-4">
++            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm">
+               <img
+                 src="/brand/logo-sehaticare.png"
+                 alt="SEHATiCare"
+-                className="h-10 w-10 object-contain"
++                className="h-14 w-14 object-contain"
+               />
+             </div>
+             <div>
+--- a/sehaticare-web/src/pages/public/PublicEducationPage.tsx
++++ b/sehaticare-web/src/pages/public/PublicEducationPage.tsx
+@@ -1,31 +1,51 @@
++import { useEffect, useMemo, useState } from 'react';
+ import { Link } from 'react-router-dom';
+ import { Button } from '../../components/ui/button';
+ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
++import { getPublishedItems } from '../../components/portal/PortalContentSections';
++import { loadPortalContent, seedDefaultIfEmpty } from '../../store/portalContentStore';
+ 
+-const educationItems = [
+-  {
+-    title: 'Memahami HIV dan AIDS',
+-    summary: 'Ringkasan dasar tentang HIV, AIDS, dan langkah awal yang aman.',
+-    type: 'Artikel'
+-  },
+-  {
+-    title: 'Proteksi dan Pencegahan',
+-    summary: 'Tips praktis untuk proteksi diri dan pasangan.',
+-    type: 'Infografik'
+-  },
+-  {
+-    title: 'Mengelola Emosi Setelah Diagnosis',
+-    summary: 'Panduan singkat untuk menenangkan diri dan mencari dukungan.',
+-    type: 'Video'
+-  },
+-  {
+-    title: 'Mitos vs Fakta',
+-    summary: 'Meluruskan informasi keliru seputar HIV/AIDS.',
+-    type: 'Artikel'
+-  }
+-];
++type EducationCard = {
++  id: string;
++  title: string;
++  summary: string;
++  typeLabel: string;
++};
++
++const summarize = (summary: string) =>
++  summary && summary.trim() && summary.trim() !== '-'
++    ? summary
++    : 'Materi edukasi ringkas untuk membantu memahami langkah awal.';
+ 
+ export function PublicEducationPage() {
++  const [portalContent, setPortalContent] = useState(() => seedDefaultIfEmpty());
++
++  useEffect(() => {
++    setPortalContent(loadPortalContent());
++  }, []);
++
++  const educationItems = useMemo<EducationCard[]>(() => {
++    const edukasi = getPublishedItems(portalContent.edukasiAwal).map((item) => ({
++      id: item.id,
++      title: item.title,
++      summary: summarize(item.summary),
++      typeLabel: 'Artikel'
++    }));
++    const infografis = getPublishedItems(portalContent.infografis).map((item) => ({
++      id: item.id,
++      title: item.title,
++      summary: summarize(item.summary),
++      typeLabel: 'Infografik'
++    }));
++    const video = getPublishedItems(portalContent.video).map((item) => ({
++      id: item.id,
++      title: item.title,
++      summary: summarize(item.summary),
++      typeLabel: 'Video'
++    }));
++    return [...edukasi, ...infografis, ...video];
++  }, [portalContent]);
++
+   return (
+     <div className="min-h-screen bg-slate-50">
+       <div className="mx-auto w-full max-w-6xl px-4 py-10 md:px-8">
+@@ -43,22 +63,33 @@
+         </div>
+ 
+         <div className="mt-6 grid gap-4 md:grid-cols-2">
+-          {educationItems.map((item) => (
+-            <Card key={item.title} className="border-slate-200 bg-white">
++          {educationItems.length === 0 ? (
++            <Card className="border-slate-200 bg-white">
+               <CardHeader>
+-                <div className="flex items-center justify-between">
+-                  <CardTitle className="text-base">{item.title}</CardTitle>
+-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{item.type}</span>
+-                </div>
+-                <CardDescription>{item.summary}</CardDescription>
++                <CardTitle className="text-base">Belum ada materi</CardTitle>
++                <CardDescription>Konten edukasi akan muncul setelah dipublish admin.</CardDescription>
+               </CardHeader>
+-              <CardContent>
+-                <Button size="sm" variant="secondary">
+-                  Lihat detail
+-                </Button>
+-              </CardContent>
+             </Card>
+-          ))}
++          ) : (
++            educationItems.map((item) => (
++              <Card key={item.id} className="border-slate-200 bg-white">
++                <CardHeader>
++                  <div className="flex items-center justify-between">
++                    <CardTitle className="text-base">{item.title}</CardTitle>
++                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
++                      {item.typeLabel}
++                    </span>
++                  </div>
++                  <CardDescription>{item.summary}</CardDescription>
++                </CardHeader>
++                <CardContent>
++                  <Button size="sm" variant="secondary">
++                    Lihat detail
++                  </Button>
++                </CardContent>
++              </Card>
++            ))
++          )}
+         </div>
+       </div>
+     </div>
+--- a/sehaticare-web/src/components/portal/PortalContentSections.tsx
++++ b/sehaticare-web/src/components/portal/PortalContentSections.tsx
+@@ -1,12 +1,34 @@
+ import { useEffect, useRef, useState } from 'react';
+ import { Link } from 'react-router-dom';
+ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+-import type { CarouselImage, PortalItem, Status } from '../../store/portalContentStore';
++import type { CarouselImage, PortalContent, PortalItem, Status } from '../../store/portalContentStore';
+ 
+ type StatusItem = { status: Status; order: number };
+ 
+ export const getPublishedItems = <T extends StatusItem>(items: T[]) =>
+   [...items].filter((item) => item.status === 'Published').sort((a, b) => a.order - b.order);
++
++const sortByUpdatedDesc = <T extends { updatedAt: string }>(items: T[]) =>
++  [...items].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
++
++export const buildAutoCarouselItems = (content: PortalContent, limit = 6): CarouselImage[] => {
++  const source = [
++    ...content.edukasiAwal,
++    ...content.video,
++    ...content.infografis
++  ].filter((item) => item.status === 'Published');
++  return sortByUpdatedDesc(source)
++    .slice(0, limit)
++    .map((item, index) => ({
++      id: `auto-${item.id}`,
++      title: item.title,
++      imageUrl: item.mediaUrl || '/brand/logo-sehaticare.png',
++      linkUrl: '/edukasi',
++      status: 'Published',
++      order: index + 1,
++      updatedAt: item.updatedAt
++    }));
++};
+ 
+ type PortalCarouselProps = {
+   items: CarouselImage[];
+--- a/sehaticare-web/src/pages/public/PublicLandingPage.tsx
++++ b/sehaticare-web/src/pages/public/PublicLandingPage.tsx
+@@ -7,6 +7,7 @@
+   PortalCarousel,
+   PortalCardSection,
+   PortalFaqSection,
++  buildAutoCarouselItems,
+   getPublishedItems
+ } from '../../components/portal/PortalContentSections';
+ import {
+@@ -51,10 +52,22 @@
+     return [...videos, ...infografis];
+   }, [portalContent]);
+   const faqs = useMemo<PortalItem[]>(() => getPublishedItems(portalContent.faq), [portalContent]);
+-  const carouselItems = useMemo(
++  const manualCarouselItems = useMemo(
+     () => getPublishedItems(portalContent.carouselImages),
+     [portalContent]
+   );
++  const autoCarouselItems = useMemo(
++    () => buildAutoCarouselItems(portalContent),
++    [portalContent]
++  );
++  const carouselItems = useMemo(() => {
++    if (manualCarouselItems.length === 0) return autoCarouselItems;
++    const titles = new Set(manualCarouselItems.map((item) => item.title));
++    const merged = manualCarouselItems.concat(
++      autoCarouselItems.filter((item) => !titles.has(item.title))
++    );
++    return merged;
++  }, [autoCarouselItems, manualCarouselItems]);
+ 
+   return (
+     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+--- a/sehaticare-web/src/pages/admin/AdminPortalPage.tsx
++++ b/sehaticare-web/src/pages/admin/AdminPortalPage.tsx
+@@ -8,6 +8,7 @@
+   PortalCarousel,
+   PortalCardSection,
+   PortalFaqSection,
++  buildAutoCarouselItems,
+   getPublishedItems
+ } from '../../components/portal/PortalContentSections';
+ import {
+@@ -80,7 +81,21 @@
+     return [...current].sort((a, b) => a.order - b.order);
+   }, [activeTab, content]);
+ 
+-  const carouselPreview = useMemo(() => getPublishedItems(content.carouselImages), [content]);
++  const manualCarouselPreview = useMemo(
++    () => getPublishedItems(content.carouselImages),
++    [content]
++  );
++  const autoCarouselPreview = useMemo(
++    () => buildAutoCarouselItems(content),
++    [content]
++  );
++  const carouselPreview = useMemo(() => {
++    if (manualCarouselPreview.length === 0) return autoCarouselPreview;
++    const titles = new Set(manualCarouselPreview.map((item) => item.title));
++    return manualCarouselPreview.concat(
++      autoCarouselPreview.filter((item) => !titles.has(item.title))
++    );
++  }, [autoCarouselPreview, manualCarouselPreview]);
+   const edukasiPreview = useMemo(() => getPublishedItems(content.edukasiAwal), [content]);
+   const faqPreview = useMemo(() => getPublishedItems(content.faq), [content]);
+ 
+--- a/sehaticare-web/src/components/portal/PortalContentSections.tsx
++++ b/sehaticare-web/src/components/portal/PortalContentSections.tsx
+@@ -1,4 +1,4 @@
+-import { useEffect, useRef, useState } from 'react';
++import { type CSSProperties, useEffect, useRef, useState } from 'react';
+ import { Link } from 'react-router-dom';
+ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+ import type { CarouselImage, PortalContent, PortalItem, Status } from '../../store/portalContentStore';
+@@ -195,6 +195,7 @@
+   actionHref?: string;
+   actionLabel?: string;
+   showAction?: boolean;
++  enableExpand?: boolean;
+   emptyTitle?: string;
+   emptyDescription?: string;
+ };
+@@ -207,6 +208,7 @@
+   actionHref = '/edukasi',
+   actionLabel = 'Lihat',
+   showAction = true,
++  enableExpand = true,
+   emptyTitle = 'Belum ada konten',
+   emptyDescription = 'Konten akan ditambahkan.'
+ }: PortalCardSectionProps) {
+@@ -240,12 +242,26 @@
+             </CardHeader>
+           </Card>
+         ) : (
+-          visibleItems.map((item) => (
+-            <Card key={item.id} className="border-slate-200 bg-white">
+-              <CardHeader>
+-                <CardTitle className="text-base">{item.title}</CardTitle>
+-                <CardDescription>{item.summary}</CardDescription>
+-              </CardHeader>
++          visibleItems.map((item) => {
++            const isExpanded = expandedIds.includes(item.id);
++            const shouldClamp = enableExpand && item.summary.length > 140;
++            return (
++              <Card key={item.id} className="border-slate-200 bg-white">
++                <CardHeader>
++                  <CardTitle className="text-base">{item.title}</CardTitle>
++                  <CardDescription style={!isExpanded && shouldClamp ? clampStyle : undefined}>
++                    {item.summary}
++                  </CardDescription>
++                  {shouldClamp ? (
++                    <button
++                      type="button"
++                      className="mt-2 text-xs font-semibold text-brand hover:underline"
++                      onClick={() => toggleExpanded(item.id)}
++                    >
++                      {isExpanded ? 'Tutup' : 'Lihat'}
++                    </button>
++                  ) : null}
++                </CardHeader>
+               {showAction ? (
+                 <CardContent>
+                   <Link to={actionHref} className="text-sm font-medium text-brand hover:underline">
+@@ -253,8 +269,9 @@
+                   </Link>
+                 </CardContent>
+               ) : null}
+-            </Card>
+-          ))
++              </Card>
++            );
++          })
+         )}
+       </div>
+     </section>
+--- a/sehaticare-web/src/pages/admin/AdminPortalPage.tsx
++++ b/sehaticare-web/src/pages/admin/AdminPortalPage.tsx
+@@ -368,6 +368,7 @@
+             items={edukasiPreview}
+             limit={3}
+             showAction={false}
++            enableExpand={false}
+             emptyTitle="Belum ada konten"
+             emptyDescription="Konten edukasi awal akan ditambahkan."
+           />
+--- a/sehaticare-web/src/pages/public/PublicEducationPage.tsx
++++ b/sehaticare-web/src/pages/public/PublicEducationPage.tsx
+@@ -1,4 +1,4 @@
+-import { useEffect, useMemo, useState } from 'react';
++import { type CSSProperties, useEffect, useMemo, useState } from 'react';
+ import { Link } from 'react-router-dom';
+ import { Button } from '../../components/ui/button';
+ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
+@@ -53,6 +53,12 @@
+     return [...edukasi, ...infografis, ...video];
+   }, [portalContent]);
+ 
++  const toggleExpanded = (id: string) => {
++    setExpandedIds((prev) =>
++      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
++    );
++  };
++
+   return (
+     <div className="min-h-screen bg-slate-50">
+       <div className="mx-auto w-full max-w-6xl px-4 py-10 md:px-8">
+@@ -78,24 +84,39 @@
+               </CardHeader>
+             </Card>
+           ) : (
+-            educationItems.map((item) => (
+-              <Card key={item.id} className="border-slate-200 bg-white">
+-                <CardHeader>
+-                  <div className="flex items-center justify-between">
+-                    <CardTitle className="text-base">{item.title}</CardTitle>
+-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+-                      {item.typeLabel}
+-                    </span>
+-                  </div>
+-                  <CardDescription>{item.summary}</CardDescription>
+-                </CardHeader>
+-                <CardContent>
+-                  <Button size="sm" variant="secondary">
+-                    Lihat detail
+-                  </Button>
+-                </CardContent>
+-              </Card>
+-            ))
++            educationItems.map((item) => {
++              const isExpanded = expandedIds.includes(item.id);
++              const shouldClamp = item.summary.length > 140;
++              return (
++                <Card key={item.id} className="border-slate-200 bg-white">
++                  <CardHeader>
++                    <div className="flex items-center justify-between">
++                      <CardTitle className="text-base">{item.title}</CardTitle>
++                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
++                        {item.typeLabel}
++                      </span>
++                    </div>
++                    <CardDescription style={!isExpanded && shouldClamp ? clampStyle : undefined}>
++                      {item.summary}
++                    </CardDescription>
++                    {shouldClamp ? (
++                      <button
++                        type="button"
++                        className="mt-2 text-xs font-semibold text-brand hover:underline"
++                        onClick={() => toggleExpanded(item.id)}
++                      >
++                        {isExpanded ? 'Tutup' : 'Lihat'}
++                      </button>
++                    ) : null}
++                  </CardHeader>
++                  <CardContent>
++                    <Button size="sm" variant="secondary">
++                      Lihat detail
++                    </Button>
++                  </CardContent>
++                </Card>
++              );
++            })
+           )}
+         </div>
+       </div>
+--- a/sehaticare-web/src/components/portal/PortalContentSections.tsx
++++ b/sehaticare-web/src/components/portal/PortalContentSections.tsx
+@@ -120,7 +120,7 @@
+           </button>
+         </div>
+       </div>
+-      <div ref={scrollRef} className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2">
++      <div ref={scrollRef} className="flex snap-x snap-mandatory gap-4 overflow-hidden pb-2">
+         {items.map((item) => {
+           const card = (
+             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+--- a/sehaticare-web/src/components/portal/PortalContentSections.tsx
++++ b/sehaticare-web/src/components/portal/PortalContentSections.tsx
+@@ -23,7 +23,7 @@
+       id: `auto-${item.id}`,
+       title: item.title,
+       imageUrl: item.mediaUrl || '/brand/logo-sehaticare.png',
+-      linkUrl: '/edukasi',
++      linkUrl: `/#portal-item-${item.id}`,
+       status: 'Published',
+       order: index + 1,
+       updatedAt: item.updatedAt
+@@ -194,8 +194,10 @@
+   limit?: number;
+   actionHref?: string;
+   actionLabel?: string;
++  actionMode?: 'link' | 'toggle';
+   showAction?: boolean;
+   enableExpand?: boolean;
++  idPrefix?: string;
+   emptyTitle?: string;
+   emptyDescription?: string;
+ };
+@@ -207,8 +209,10 @@
+   limit,
+   actionHref = '/edukasi',
+   actionLabel = 'Lihat',
++  actionMode = 'link',
+   showAction = true,
+   enableExpand = true,
++  idPrefix = 'portal-item',
+   emptyTitle = 'Belum ada konten',
+   emptyDescription = 'Konten akan ditambahkan.'
+ }: PortalCardSectionProps) {
+@@ -245,14 +249,19 @@
+           visibleItems.map((item) => {
+             const isExpanded = expandedIds.includes(item.id);
+             const shouldClamp = enableExpand && item.summary.length > 140;
++            const showInlineToggle = enableExpand && actionMode !== 'toggle' && shouldClamp;
+             return (
+-              <Card key={item.id} className="border-slate-200 bg-white">
++              <Card
++                key={item.id}
++                id={`${idPrefix}-${item.id}`}
++                className="border-slate-200 bg-white"
++              >
+                 <CardHeader>
+                   <CardTitle className="text-base">{item.title}</CardTitle>
+                   <CardDescription style={!isExpanded && shouldClamp ? clampStyle : undefined}>
+                     {item.summary}
+                   </CardDescription>
+-                  {shouldClamp ? (
++                  {showInlineToggle ? (
+                     <button
+                       type="button"
+                       className="mt-2 text-xs font-semibold text-brand hover:underline"
+@@ -264,9 +273,19 @@
+                 </CardHeader>
+               {showAction ? (
+                 <CardContent>
+-                  <Link to={actionHref} className="text-sm font-medium text-brand hover:underline">
+-                    {actionLabel}
+-                  </Link>
++                  {actionMode === 'link' ? (
++                    <Link to={actionHref} className="text-sm font-medium text-brand hover:underline">
++                      {actionLabel}
++                    </Link>
++                  ) : (
++                    <button
++                      type="button"
++                      className="text-sm font-semibold text-brand hover:underline"
++                      onClick={() => toggleExpanded(item.id)}
++                    >
++                      {isExpanded ? 'Tutup' : actionLabel}
++                    </button>
++                  )}
+                 </CardContent>
+               ) : null}
+               </Card>
+--- a/sehaticare-web/src/pages/public/PublicLandingPage.tsx
++++ b/sehaticare-web/src/pages/public/PublicLandingPage.tsx
+@@ -206,6 +206,8 @@
+           items={educationHighlights}
+           actionHref="/edukasi"
+           actionLabel="Lihat"
++          actionMode="toggle"
++          idPrefix="portal-item"
+           emptyTitle="Belum ada konten"
+           emptyDescription="Konten edukasi awal akan ditambahkan."
+         />
+@@ -216,6 +218,8 @@
+           items={mediaItems}
+           actionHref="/edukasi"
+           actionLabel="Lihat"
++          actionMode="toggle"
++          idPrefix="portal-item"
+           emptyTitle="Belum ada konten"
+           emptyDescription="Konten multimedia akan ditambahkan."
+         />

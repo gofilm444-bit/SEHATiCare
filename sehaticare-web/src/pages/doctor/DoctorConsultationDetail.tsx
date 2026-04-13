@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiFetch } from '../../lib/client';
+import { useMessagesPolling } from '../../hooks/useMessagesPolling';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -30,6 +31,9 @@ type ChatMessage = {
   sender_role: 'PASIEN' | 'DOKTER' | 'AI';
   content: string;
   created_at: string;
+  voice_note_id?: string | null;
+  voiceNoteId?: string | null;
+  voice_note?: { id?: string | null; download_url?: string | null } | null;
 };
 
 const getLatestMessageTimestamp = (items: ChatMessage[]) => {
@@ -86,6 +90,48 @@ const mergeMessagesById = (prev: ChatMessage[], incoming: ChatMessage[]) => {
   return merged;
 };
 
+type VoiceNoteStore = {
+  pending: { id: string; sentAt: number }[];
+  resolved: Record<string, string>;
+};
+
+const readVoiceNoteStore = (consultationId: string): VoiceNoteStore => {
+  if (typeof window === 'undefined') return { pending: [], resolved: {} };
+  try {
+    const raw = window.localStorage.getItem(`sehaticare.voiceNotes.${consultationId}`);
+    if (!raw) return { pending: [], resolved: {} };
+    const parsed = JSON.parse(raw) as { pending?: unknown; resolved?: unknown };
+    const pending = Array.isArray(parsed?.pending)
+      ? parsed.pending.filter(
+          (item): item is { id: string; sentAt: number } =>
+            Boolean(item) &&
+            typeof (item as { id?: unknown }).id === 'string' &&
+            typeof (item as { sentAt?: unknown }).sentAt === 'number'
+        )
+      : [];
+    const resolved: Record<string, string> = {};
+    if (parsed?.resolved && typeof parsed.resolved === 'object') {
+      for (const [key, value] of Object.entries(parsed.resolved as Record<string, unknown>)) {
+        if (typeof key === 'string' && typeof value === 'string') {
+          resolved[key] = value;
+        }
+      }
+    }
+    return { pending, resolved };
+  } catch {
+    return { pending: [], resolved: {} };
+  }
+};
+
+const writeVoiceNoteStore = (consultationId: string, store: VoiceNoteStore) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(`sehaticare.voiceNotes.${consultationId}`, JSON.stringify(store));
+  } catch {
+    // ignore storage errors
+  }
+};
+
 export function DoctorConsultationDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -107,6 +153,7 @@ export function DoctorConsultationDetail() {
   const [finishError, setFinishError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [voiceNoteByMessageId, setVoiceNoteByMessageId] = useState<Record<string, string>>({});
   const endRef = useRef<HTMLDivElement | null>(null);
   const lastMessageCountRef = useRef(0);
   const lastMessageAtRef = useRef<string | null>(null);
@@ -114,12 +161,14 @@ export function DoctorConsultationDetail() {
   const isNearBottomRef = useRef(true);
   const isInputFocusedRef = useRef(false);
   const justSentRef = useRef(false);
-  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didInitialScrollRef = useRef(false);
   const pollStatsRef = useRef({ recentNew: [] as boolean[], consecutiveNoNew: 0 });
   const messagesRequestId = useRef(0);
   const inFlightRef = useRef(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingVoiceNotesRef = useRef<{ id: string; sentAt: number }[]>([]);
+  const voiceNoteByMessageIdRef = useRef<Record<string, string>>({});
 
   const updateNearBottom = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -154,7 +203,7 @@ export function DoctorConsultationDetail() {
     if (recentNew.length >= 2 && recentNew[recentNew.length - 1] && recentNew[recentNew.length - 2]) {
       return 2500;
     }
-    return 6000;
+    return 3000;
   }, []);
 
   const loadDetail = useCallback(async () => {
@@ -175,7 +224,7 @@ export function DoctorConsultationDetail() {
     }
   }, [data, handleUnauthorized, id, token]);
 
-  const loadMessages = useCallback(async (options?: { silent?: boolean }) => {
+  const loadMessages = useCallback(async (options?: { silent?: boolean; signal?: AbortSignal }) => {
     if (!id) return;
     if (inFlightRef.current) return;
     const requestId = ++messagesRequestId.current;
@@ -201,10 +250,11 @@ export function DoctorConsultationDetail() {
       const query = shouldFetchIncremental ? `?after=${encodeURIComponent(lastMessageAtRef.current as string)}` : '';
       const response = await apiFetch<{ messages: ChatMessage[]; ai_typing?: boolean }>(
         `/consultations/${id}/messages${query}`,
-        {},
+        { signal: options?.signal },
         { token, onUnauthorized: handleUnauthorized }
       );
       if (requestId !== messagesRequestId.current) return;
+      if (options?.signal?.aborted) return;
       if (options?.silent) {
         const hadNew = response.messages.length > 0;
         const stats = pollStatsRef.current;
@@ -228,6 +278,7 @@ export function DoctorConsultationDetail() {
       }
     } catch (err) {
       if (requestId !== messagesRequestId.current) return;
+      if (options?.signal?.aborted) return;
       setMessagesError((err as Error).message);
     } finally {
       inFlightRef.current = false;
@@ -270,26 +321,64 @@ export function DoctorConsultationDetail() {
   }, [loadDetail, loadMessages]);
 
   useEffect(() => {
-    if (!id) return;
-    pollStatsRef.current = { recentNew: [], consecutiveNoNew: 0 };
-    let cancelled = false;
+    didInitialScrollRef.current = false;
+    if (!id) {
+      pendingVoiceNotesRef.current = [];
+      voiceNoteByMessageIdRef.current = {};
+      setVoiceNoteByMessageId({});
+      return;
+    }
+    const store = readVoiceNoteStore(id);
+    pendingVoiceNotesRef.current = store.pending;
+    voiceNoteByMessageIdRef.current = store.resolved;
+    setVoiceNoteByMessageId(store.resolved);
+  }, [id]);
 
-    const poll = async () => {
-      if (cancelled) return;
-      await loadMessagesRef.current({ silent: true });
-      loadDetailRef.current();
-      const delay = getNextPollDelay();
-      pollTimeoutRef.current = setTimeout(poll, delay);
-    };
+  useMessagesPolling({
+    consultationId: id,
+    getDelay: getNextPollDelay,
+    loadMessages,
+    loadDetail: () => loadDetailRef.current(),
+    detailIntervalMs: 0,
+    initialDelayMs: 3000,
+    hiddenDelayMs: 3000
+  });
 
-    pollTimeoutRef.current = setTimeout(poll, 6000);
-    return () => {
-      cancelled = true;
-      if (pollTimeoutRef.current) {
-        clearTimeout(pollTimeoutRef.current);
+  const attachPendingVoiceNotes = useCallback((items: ChatMessage[]) => {
+    if (pendingVoiceNotesRef.current.length === 0) return;
+    const nextMap = { ...voiceNoteByMessageIdRef.current };
+    const candidates = items
+      .filter((message) => message.content === '[VOICE_NOTE]' && !nextMap[message.id])
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+    if (candidates.length === 0) return;
+
+    let changed = false;
+    const remaining: { id: string; sentAt: number }[] = [];
+    for (const pending of pendingVoiceNotesRef.current) {
+      const matchIndex = candidates.findIndex((message) => {
+        const time = Date.parse(message.created_at);
+        return Number.isFinite(time) && time >= pending.sentAt - 5000;
+      });
+      if (matchIndex === -1) {
+        remaining.push(pending);
+        continue;
       }
-    };
-  }, [getNextPollDelay, id]);
+      const match = candidates.splice(matchIndex, 1)[0];
+      if (match) {
+        nextMap[match.id] = pending.id;
+        changed = true;
+      }
+    }
+
+    pendingVoiceNotesRef.current = remaining;
+    if (changed) {
+      voiceNoteByMessageIdRef.current = nextMap;
+      setVoiceNoteByMessageId(nextMap);
+    }
+    if (id) {
+      writeVoiceNoteStore(id, { pending: pendingVoiceNotesRef.current, resolved: voiceNoteByMessageIdRef.current });
+    }
+  }, [id]);
 
   useEffect(() => {
     const hasNew = messages.length > lastMessageCountRef.current;
@@ -307,6 +396,18 @@ export function DoctorConsultationDetail() {
   useEffect(() => {
     updateNearBottom();
   }, [messages.length, updateNearBottom]);
+
+  useEffect(() => {
+    if (initialLoading) return;
+    if (didInitialScrollRef.current) return;
+    if (messages.length === 0) return;
+    scrollToBottom('auto');
+    didInitialScrollRef.current = true;
+  }, [initialLoading, messages.length, scrollToBottom]);
+
+  useEffect(() => {
+    attachPendingVoiceNotes(messages);
+  }, [attachPendingVoiceNotes, messages]);
 
   const isFinished = data?.status === 'SELESAI';
   const isRedFlag = Boolean(data?.red_flag);
@@ -336,9 +437,15 @@ export function DoctorConsultationDetail() {
     }
   }, [handleUnauthorized, id, isFinished, loadMessages, token]);
 
-  const handleVoiceNoteSent = useCallback(() => {
+  const handleVoiceNoteSent = useCallback((voiceNoteId?: string) => {
+    if (voiceNoteId) {
+      pendingVoiceNotesRef.current.push({ id: voiceNoteId, sentAt: Date.now() });
+      if (id) {
+        writeVoiceNoteStore(id, { pending: pendingVoiceNotesRef.current, resolved: voiceNoteByMessageIdRef.current });
+      }
+    }
     loadMessagesRef.current({ silent: false });
-  }, []);
+  }, [id]);
 
   const handleFinish = async () => {
     if (!id || finishing) return;
@@ -367,6 +474,9 @@ export function DoctorConsultationDetail() {
       emptyText="Belum ada pesan. Mulai percakapan dengan pasien."
       selfRole="DOKTER"
       endRef={endRef}
+      token={token}
+      onUnauthorized={handleUnauthorized}
+      voiceNoteByMessageId={voiceNoteByMessageId}
     />
   );
 
@@ -465,7 +575,7 @@ export function DoctorConsultationDetail() {
                 {isFinished ? 'Konsultasi sudah selesai. Chat bersifat read-only.' : 'Komunikasi teks dengan pasien'}
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col gap-3">
+            <CardContent className="flex min-h-0 flex-col gap-3">
               {messagesError ? (
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                   <span>{messagesError}</span>
@@ -486,11 +596,11 @@ export function DoctorConsultationDetail() {
                     </p>
                   </div>
                 </div>
-                <div className="relative flex-1 min-h-0">
+                <div className="relative flex flex-1 min-h-0 flex-col">
                   <div
                     ref={messagesContainerRef}
                     onScroll={updateNearBottom}
-                    className="h-full overflow-y-auto bg-slate-50 px-4 py-3 pb-[120px]"
+                    className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-50 px-4 py-3 pb-[120px]"
                   >
                     {renderMessages()}
                   </div>
@@ -513,7 +623,7 @@ export function DoctorConsultationDetail() {
                     </div>
                   </div>
                 ) : null}
-                <div className="sticky bottom-0 border-t border-slate-200 bg-white/95 px-3 py-2 backdrop-blur">
+                <div className="sticky bottom-0 shrink-0 border-t border-slate-200 bg-white/95 px-3 py-2 backdrop-blur">
                   <ChatComposer
                     onSend={handleSend}
                     onFocusChange={(focused) => {

@@ -1,1 +1,1 @@
-export { apiFetch, API_BASE_URL } from './api/client';
+export { apiFetch, API_BASE_URL } from './lib/api';

@@ -1,0 +1,4 @@
+minio.lan {
+  reverse_proxy 127.0.0.1:9000
+  tls ./certs/minio.lan.pem ./certs/minio.lan-key.pem
+}

@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { apiFetch } from '../api/client';
+import { apiFetch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 
 export function useApiClient() {

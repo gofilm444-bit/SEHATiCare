@@ -13,7 +13,7 @@ type VoiceNoteControlsProps = {
   token: string | null;
   onUnauthorized?: () => void;
   disabled?: boolean;
-  onSent?: () => void;
+  onSent?: (voiceNoteId?: string) => void;
   onBusyChange?: (busy: boolean) => void;
   layout?: 'card' | 'toolbar';
   className?: string;
@@ -248,7 +248,7 @@ export function VoiceNoteControls({
       }
 
       setUploadStep('sending');
-      await apiFetch(
+      const voiceNote = await apiFetch<{ id: string }>(
         `/consultations/${consultationId}/voice-notes/commit`,
         {
           method: 'POST',
@@ -264,7 +264,7 @@ export function VoiceNoteControls({
       setUploadStep(null);
       setRecordedBlob(null);
       setRecordingSeconds(0);
-      onSent?.();
+      onSent?.(voiceNote?.id);
     } catch (err) {
       setUploadStep(null);
       setError(err instanceof Error ? err.message : 'Gagal mengirim voice note.');

@@ -25,7 +25,8 @@ const envSchema = z.object({
   STORAGE_ACCESS_KEY: z.string(),
   STORAGE_SECRET_KEY: z.string(),
   STORAGE_USE_SSL: z.coerce.boolean(),
-  STORAGE_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive()
+  STORAGE_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive(),
+  STORAGE_PUBLIC_BASE_URL: z.string().url().optional()
 });
 
 export const env = envSchema.parse(process.env);

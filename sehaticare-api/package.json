@@ -18,7 +18,7 @@
     "seed:stage2": "ts-node prisma/seed-stage2.ts",
     "seed:content": "ts-node prisma/seed-verified-content.ts",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test -r ts-node/register tests/security.test.ts tests/account.test.ts tests/admin-account-management.test.ts tests/stage2-content.test.ts tests/stage3-health-planning.test.ts tests/stage4-counselor-complaints.test.ts tests/professional-roles.test.ts tests/unified-consultations.test.ts tests/finalization-pre-flowchart.test.ts tests/portal-cms.test.ts tests/companion-assignments.test.ts tests/companion-routing.test.ts tests/hiv-care-monitoring.test.ts",
+    "test": "node --test -r ts-node/register tests/security.test.ts tests/account.test.ts tests/admin-account-management.test.ts tests/stage2-content.test.ts tests/stage3-health-planning.test.ts tests/stage4-counselor-complaints.test.ts tests/professional-roles.test.ts tests/unified-consultations.test.ts tests/finalization-pre-flowchart.test.ts tests/portal-cms.test.ts tests/companion-assignments.test.ts tests/companion-routing.test.ts tests/hiv-care-monitoring.test.ts tests/art-care.test.ts",
     "test:admin-accounts": "node --test -r ts-node/register tests/admin-account-management.test.ts",
     "test:unified-consultations": "node --test -r ts-node/register tests/unified-consultations.e2e.test.ts",
     "test:stage3": "node --test -r ts-node/register tests/stage3-health-planning.e2e.test.ts",

@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { ChatMessages } from '../../components/chat/ChatMessages';
 import { VoiceNoteControls } from '../../components/chat/VoiceNoteControls';
+import { DoctorCareMonitoringSection } from './DoctorCareMonitoringSection';
 
 type ConsultationDetail = {
   id: string;
@@ -529,6 +530,13 @@ export function DoctorConsultationDetail() {
               <p className="whitespace-pre-line text-sm leading-relaxed text-slate-800">{data.initial_complaint}</p>
             </CardContent>
           </Card>
+
+          {id && token ? (
+            <DoctorCareMonitoringSection
+              token={token}
+              consultationId={id}
+            />
+          ) : null}
 
           <Card>
             <CardHeader>

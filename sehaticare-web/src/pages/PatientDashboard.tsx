@@ -7,6 +7,7 @@ import {
   getPatientActiveCompanionConversation,
 } from '../api/companionAssignments';
 import { consultationApi, ConsultationOverviewItem } from '../api/consultations';
+import { getPatientCare, PatientCareSummaryResponse } from '../api/hivCare';
 import { Button, buttonClassName } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Icon } from '../components/ui/icons';
@@ -33,6 +34,8 @@ export function PatientDashboard() {
   const [loadingCompanion, setLoadingCompanion] = useState(true);
   const [contactingCompanion, setContactingCompanion] = useState(false);
   const [companionActionError, setCompanionActionError] = useState('');
+  const [careData, setCareData] = useState<PatientCareSummaryResponse | null>(null);
+  const [loadingCare, setLoadingCare] = useState(true);
 
   const auth = useMemo(() => ({ token, onUnauthorized: handleUnauthorized }), [handleUnauthorized, token]);
 
@@ -90,6 +93,11 @@ export function PatientDashboard() {
       .then((res) => setCompanionData(res))
       .catch(() => setCompanionData(null))
       .finally(() => setLoadingCompanion(false));
+
+    void getPatientCare(token)
+      .then((res) => setCareData(res))
+      .catch(() => setCareData(null))
+      .finally(() => setLoadingCare(false));
   }, [token]);
 
   const active = (items || []).find((item) => openStatuses.has(item.status)) ?? null;
@@ -227,6 +235,94 @@ export function PatientDashboard() {
               {companionActionError}
             </p>
           ) : null}
+        </div>
+      </section>
+
+      {/* SECTION PERAWATAN SAYA */}
+      <section aria-labelledby="care-section-title">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="eyebrow">Program perawatan</p>
+            <h2 id="care-section-title" className="mt-1 text-2xl font-bold">
+              Perawatan & Pemantauan Saya
+            </h2>
+          </div>
+          <Link to="/patient/care">
+            <Button variant="outline" size="sm">
+              Lihat Riwayat
+              <Icon name="chevron" className="h-4 w-4" />
+            </Button>
+          </Link>
+        </div>
+
+        <div className="mt-4">
+          {loadingCare ? (
+            <Skeleton className="h-24 w-full rounded-2xl" />
+          ) : careData?.care?.status === 'ACTIVE' ? (
+            <Card className="border-emerald-200/90 bg-emerald-50/30">
+              <CardContent className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center">
+                <div className="flex items-start gap-4">
+                  <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-800">
+                    <Icon name="activity" className="h-6 w-6" />
+                  </span>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong className="text-lg text-slate-950">
+                        {careData.care.facility ? careData.care.facility.name : 'Layanan Terdaftar'}
+                      </strong>
+                      <StatusBadge variant="success">Aktif</StatusBadge>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {careData.care.facility?.address || 'Fasilitas Layanan Utama'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Pemantauan Terakhir:{' '}
+                      {careData.latest_monitoring_date
+                        ? new Date(careData.latest_monitoring_date).toLocaleDateString('id-ID', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric'
+                          })
+                        : 'Belum ada catatan pemantauan'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center">
+                  <Link to="/patient/care">
+                    <Button variant="default" size="sm" id="view-monitoring-history-btn">
+                      Riwayat Pemantauan
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-dashed bg-slate-50/60">
+              <CardContent className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center">
+                <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:text-left">
+                  <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-200 text-slate-600">
+                    <Icon name="activity" className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong className="text-sm font-semibold text-slate-900">
+                        Belum Terdaftar Dalam Care Enrollment
+                      </strong>
+                      <StatusBadge variant="outline">Belum Terdaftar</StatusBadge>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Pendaftaran layanan HIV dilakukan melalui fasilitas kesehatan pilihan Anda.
+                    </p>
+                  </div>
+                </div>
+                <Link to="/informasi-layanan">
+                  <Button variant="outline" size="sm">
+                    Cari Fasilitas
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </section>
 

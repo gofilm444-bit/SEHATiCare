@@ -19,3 +19,11 @@ sehaticare-web/.env.*.local
 **/*.log
 **/.DS_Store
 **/._*
+output/
+.local-backups/
+.local-logs/
+.local-storage/
+.kilo
+.sixth
+.tmp
+ops/

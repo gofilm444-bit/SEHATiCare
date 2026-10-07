@@ -223,9 +223,10 @@ describe('AG-04 HIV Care Enrollment & Clinical Monitoring Frontend', () => {
           tb_screening_result: payload.tb_screening_result,
           general_condition: payload.general_condition,
           clinical_note_private: payload.clinical_note_private,
+          patient_note: null,
           source: 'DOCTOR'
         };
-        doctorEntries.push(newEntry);
+        doctorEntries.push(newEntry as any);
         return new Response(JSON.stringify(newEntry), { status: 201, headers: { 'Content-Type': 'application/json' } });
       }
       return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });

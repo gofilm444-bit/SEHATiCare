@@ -432,6 +432,7 @@ model health_facilities {
   control_schedules        control_schedules[]
   counselor_profiles       counselor_profiles[]
   consultation_preferences consultation_preferences[]
+  patient_companion_assignments patient_companion_assignments[]
 
   @@index([region_id, facility_type, verification_status, is_active])
   @@index([name])
@@ -559,6 +560,9 @@ model users {
   outreach_cases_created                                  professional_outreach_cases[] @relation("outreach_case_creator")
   portal_contents_created                                 portal_contents[]            @relation("portal_content_created_by")
   portal_contents_updated                                 portal_contents[]            @relation("portal_content_updated_by")
+  patient_companion_assignments_as_patient                patient_companion_assignments[] @relation("patient_companion_as_patient")
+  patient_companion_assignments_as_companion              patient_companion_assignments[] @relation("patient_companion_as_companion")
+  patient_companion_assignments_assigned_by               patient_companion_assignments[] @relation("patient_companion_assigned_by")
 }
 
 model professional_outreach_cases {
@@ -1515,3 +1519,35 @@ enum retention_status {
   REDACTED
   LEGAL_HOLD
 }
+
+model patient_companion_assignments {
+  id                  String                              @id @db.Uuid
+  patient_user_id     String                              @db.Uuid
+  companion_user_id   String                              @db.Uuid
+  facility_id         String?                             @db.Uuid
+  assigned_by_user_id String                              @db.Uuid
+  status              patient_companion_assignment_status @default(ACTIVE)
+  started_at          DateTime                            @default(now())
+  ended_at            DateTime?
+  end_reason          String?
+  notes               String?
+  created_at          DateTime                            @default(now())
+  updated_at          DateTime                            @default(now())
+
+  patient     users              @relation("patient_companion_as_patient", fields: [patient_user_id], references: [id])
+  companion   users              @relation("patient_companion_as_companion", fields: [companion_user_id], references: [id])
+  assigned_by users              @relation("patient_companion_assigned_by", fields: [assigned_by_user_id], references: [id])
+  facility    health_facilities? @relation(fields: [facility_id], references: [id])
+
+  @@index([patient_user_id, status])
+  @@index([companion_user_id, status])
+  @@index([facility_id])
+  @@index([status, started_at])
+}
+
+enum patient_companion_assignment_status {
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+

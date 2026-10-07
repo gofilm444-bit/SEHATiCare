@@ -45,10 +45,18 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/sehaticare?schema=pu
 - Development: `npm run dev`
 - Build: `npm run build`
 - Start (production build): `npm start`
-- Seed data (admin + verified doctor + artikel edukasi): `npm run seed`
-- Open API docs: http://localhost:3000/docs (Authorize with `Bearer <access_token>`)
+- Seed data development/testing saja: set `NODE_ENV=development` (atau `test`) dan
+  `SEED_DEMO_PASSWORD` dengan nilai unik minimal 12 karakter, lalu jalankan `npm run seed`.
+  Seed akan menolak environment lain, termasuk production.
+- Open API docs: http://localhost:3100/docs (Authorize with `Bearer <access_token>`)
 - Login for docs: request OTP (`POST /auth/otp/request`), verify (`POST /auth/otp/verify`), then click **Authorize** in Swagger UI and paste `Bearer <access_token>`.
-- Default seeded password (admin/doctor/patient): `SehatiCare123!`
+
+### Membuat admin awal dengan aman
+
+Jangan menjalankan demo seed pada production. Provisioning admin production harus dilakukan
+melalui prosedur operasi satu-kali yang diaudit: gunakan identitas operator yang disetujui,
+password unik dari secret manager, simpan hanya hash bcrypt, verifikasi login, kemudian cabut
+akses atau material bootstrap. Jangan menyalin akun atau password demo ke production.
 
 ## Endpoint (MVP)
 

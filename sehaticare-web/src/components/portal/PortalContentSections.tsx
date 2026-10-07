@@ -274,7 +274,7 @@ export function PortalCardSection({
               {showAction ? (
                 <CardContent>
                   {actionMode === 'link' ? (
-                    <Link to={actionHref} className="text-sm font-medium text-brand hover:underline">
+                    <Link to={item.href || actionHref} className="text-sm font-medium text-brand hover:underline">
                       {actionLabel}
                     </Link>
                   ) : (

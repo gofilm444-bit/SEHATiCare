@@ -18,7 +18,13 @@ export async function listPublishedEducation(params: { q?: string; skip: number;
       where,
       orderBy: [{ published_at: 'desc' }, { created_at: 'desc' }],
       skip: params.skip,
-      take: params.take
+      take: params.take,
+      select: {
+        id: true,
+        title: true,
+        body_markdown: true,
+        created_at: true
+      }
     }),
     prisma.education_articles.count({ where })
   ]);
@@ -28,6 +34,12 @@ export async function listPublishedEducation(params: { q?: string; skip: number;
 
 export function getEducationById(id: string) {
   return prisma.education_articles.findFirst({
-    where: { id, is_published: true }
+    where: { id, is_published: true },
+    select: {
+      id: true,
+      title: true,
+      body_markdown: true,
+      created_at: true
+    }
   });
 }

@@ -2,13 +2,14 @@ import * as React from 'react';
 import { cn } from '../../lib/utils';
 
 const variants: Record<BadgeVariant, string> = {
-  default: 'bg-slate-900 text-white',
+  default: 'bg-slate-800 text-white',
   outline: 'border border-slate-300 text-slate-700 bg-white',
-  success: 'bg-emerald-600 text-white',
-  info: 'bg-sky-600 text-white'
+  success: 'border border-emerald-200 bg-emerald-50 text-emerald-800',
+  info: 'border border-sky-200 bg-sky-50 text-sky-800',
+  neutral: 'border border-slate-200 bg-slate-50 text-slate-700'
 };
 
-export type BadgeVariant = 'default' | 'outline' | 'success' | 'info';
+export type BadgeVariant = 'default' | 'outline' | 'success' | 'info' | 'neutral';
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant;

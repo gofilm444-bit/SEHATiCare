@@ -4,6 +4,8 @@ import { prisma } from '../../db/prisma';
 import { isPrismaConnectionError } from '../../db/prismaErrors';
 import { ensureDoctorVerified } from '../consultations/consultations.guards';
 import { getDoctorConsultationDetail, listDoctorActive, listDoctorHistory, listDoctorQueue } from '../consultations/consultations.service';
+import { toSafeDoctorConsultationResponse } from '../consultations/consultations.presenter';
+import { standardErrorResponses } from '../../schemas/errorResponse';
 
 export default async function doctorRoutes(fastify: FastifyInstance) {
   fastify.get(
@@ -15,6 +17,7 @@ export default async function doctorRoutes(fastify: FastifyInstance) {
         security: [{ bearerAuth: [] }],
         description: 'Queue of unassigned consultations with status MENUNGGU_DOKTER or AI_AKTIF.',
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -24,7 +27,6 @@ export default async function doctorRoutes(fastify: FastifyInstance) {
                   type: 'object',
                   properties: {
                     id: { type: 'string' },
-                    patient_id: { type: 'string' },
                     status: { type: 'string' },
                     initial_complaint: { type: 'string' },
                     opened_at: { type: 'string', format: 'date-time' },
@@ -48,7 +50,6 @@ export default async function doctorRoutes(fastify: FastifyInstance) {
                   },
                   required: [
                     'id',
-                    'patient_id',
                     'status',
                     'initial_complaint',
                     'opened_at',
@@ -83,7 +84,7 @@ export default async function doctorRoutes(fastify: FastifyInstance) {
       }
 
       const items = await listDoctorQueue();
-      return reply.send({ items });
+      return reply.send({ items: items.map(toSafeDoctorConsultationResponse) });
     }
   );
 
@@ -96,6 +97,7 @@ export default async function doctorRoutes(fastify: FastifyInstance) {
         security: [{ bearerAuth: [] }],
         description: 'List active consultations handled by the current doctor.',
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -143,7 +145,7 @@ export default async function doctorRoutes(fastify: FastifyInstance) {
       }
 
       const items = await listDoctorActive(request.user!.userId);
-      return reply.send({ items });
+      return reply.send({ items: items.map(toSafeDoctorConsultationResponse) });
     }
   );
 
@@ -160,6 +162,7 @@ export default async function doctorRoutes(fastify: FastifyInstance) {
           required: ['id']
         },
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -221,7 +224,7 @@ export default async function doctorRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       const consultation = await getDoctorConsultationDetail(id, request.user!.userId);
       if (!consultation) return reply.status(404).send({ message: 'Consultation not found' });
-      return reply.send(consultation);
+      return reply.send(toSafeDoctorConsultationResponse(consultation));
     }
   );
 
@@ -233,6 +236,7 @@ export default async function doctorRoutes(fastify: FastifyInstance) {
         tags: ['Doctor'],
         security: [{ bearerAuth: [] }],
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -280,7 +284,7 @@ export default async function doctorRoutes(fastify: FastifyInstance) {
       }
 
       const items = await listDoctorHistory(request.user!.userId);
-      return reply.send({ items });
+      return reply.send({ items: items.map(toSafeDoctorConsultationResponse) });
     }
   );
 }

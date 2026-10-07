@@ -1,108 +1,59 @@
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Badge } from '../components/ui/badge';
+import { useEffect, useState } from 'react';
+import { Link, Outlet, useLocation } from 'react-router-dom';
+import { apiFetch } from '../api/client';
+import { ConsultationFloatingAction } from '../components/consultations/ConsultationFloatingAction';
 import { Button } from '../components/ui/button';
+import { Icon, type IconName } from '../components/ui/icons';
 import { useAuth } from '../context/AuthContext';
-import { formatRole, roleHome } from '../lib/roles';
+import { formatRole } from '../lib/roles';
 import { UserRole } from '../types/auth';
 
-const navItems: { label: string; path: string; roles: UserRole[]; description?: string }[] = [
-  { label: 'Dashboard Pasien', path: '/patient', roles: ['PASIEN'], description: 'Ringkasan kondisi & edukasi' },
-  { label: 'Riwayat Konsultasi', path: '/patient/consultations', roles: ['PASIEN'], description: 'Sesi aktif & selesai' },
-  { label: 'Edukasi', path: '/patient/education', roles: ['PASIEN'], description: 'Artikel kesehatan' },
-  { label: 'Antrian Konsultasi', path: '/doctor', roles: ['DOKTER'], description: 'Daftar pasien menunggu' },
-  { label: 'Riwayat Saya', path: '/doctor/history', roles: ['DOKTER'], description: 'Konsultasi selesai' },
-  { label: 'Dashboard Admin', path: '/admin', roles: ['ADMIN'], description: 'Kendali sistem & audit' },
-  { label: 'Dashboard Pendamping', path: '/pendamping', roles: ['PENDAMPING'], description: 'Antrian tugas harian' }
+type NavigationGroup='UTAMA'|'KESEHATAN SAYA'|'INFORMASI'|'BANTUAN'|'PENGELOLAAN'|'PENGATURAN';
+type ProfessionalServiceRole='COUNSELOR'|'FACILITATOR'|'COMPANION'|'OUTREACH_WORKER'|'SUPPORT_OFFICER';
+export type NavigationItem={label:string;path:string;roles:UserRole[];description?:string;activePaths?:string[];requiresCounselorPermission?:boolean;serviceRoles?:ProfessionalServiceRole[];group:NavigationGroup;icon:IconName};
+export const navItems:NavigationItem[]=[
+ {label:'Dashboard Pasien',path:'/patient',roles:['PASIEN'],description:'Ringkasan hari ini',group:'UTAMA',icon:'home'},
+ {label:'Konsultasi',path:'/patient/consultations',activePaths:['/patient/counselor','/patient/chat','/patient/consultation-history'],roles:['PASIEN'],description:'Curhat ke konselor & riwayat',group:'UTAMA',icon:'chat'},
+ {label:'Jadwal Kontrol',path:'/patient/schedules',roles:['PASIEN'],description:'Jadwal Anda',group:'KESEHATAN SAYA',icon:'calendar'},
+ {label:'Pengingat & Kepatuhan',path:'/patient/medication-reminders',activePaths:['/patient/adherence'],roles:['PASIEN'],description:'Pengingat Anda',group:'KESEHATAN SAYA',icon:'bell'},
+ {label:'Edukasi',path:'/patient/education',roles:['PASIEN'],description:'Informasi kesehatan',group:'INFORMASI',icon:'book'},
+ {label:'Fasilitas',path:'/informasi-layanan',roles:['PASIEN'],description:'Temukan layanan',group:'INFORMASI',icon:'building'},
+ {label:'Pengaduan',path:'/patient/complaints',roles:['PASIEN'],description:'Bantuan dan status',group:'BANTUAN',icon:'help'},
+ {label:'Preferensi Notifikasi',path:'/patient/notification-preferences',roles:['PASIEN'],description:'Privasi pemberitahuan',group:'PENGATURAN',icon:'bell'},
+ {label:'Antrian Konsultasi',path:'/doctor',roles:['DOKTER'],description:'Sesi yang menunggu',group:'UTAMA',icon:'clipboard'},
+ {label:'Riwayat Saya',path:'/doctor/history',roles:['DOKTER'],description:'Konsultasi selesai',group:'PENGELOLAAN',icon:'clock'},
+ {label:'Pengajuan Profesional',path:'/counselor-application',roles:['DOKTER','COUNSELOR'],description:'Profil, dokumen & status',group:'PENGELOLAAN',icon:'users'},
+ {label:'Jadwal Pengguna',path:'/doctor/schedules',roles:['DOKTER'],description:'Pengguna ditugaskan',group:'PENGELOLAAN',icon:'calendar'},
+ {label:'Dashboard Admin',path:'/admin',roles:['ADMIN'],description:'Prioritas hari ini',group:'UTAMA',icon:'home'},
+ {label:'Manajemen Pengguna',path:'/admin/users',roles:['ADMIN'],description:'Akun dan akses',group:'PENGELOLAAN',icon:'users'},
+ {label:'Konten Portal',path:'/admin/portal',roles:['ADMIN'],description:'Landing dan sorotan',group:'PENGELOLAAN',icon:'clipboard'},
+ {label:'Informasi Publik',path:'/admin/education',roles:['ADMIN'],description:'Konten dan fasilitas',group:'PENGELOLAAN',icon:'book'},
+ {label:'Monitoring Sistem',path:'/admin/monitoring',roles:['ADMIN'],description:'Kesehatan layanan',group:'PENGELOLAAN',icon:'activity'},
+ {label:'Audit Aktivitas',path:'/admin/audit',roles:['ADMIN'],description:'Jejak perubahan',group:'PENGELOLAAN',icon:'shield'},
+ {label:'Tenaga Profesional',path:'/admin/counselors',roles:['ADMIN'],description:'Pengajuan dan aktivasi',group:'PENGELOLAAN',icon:'users'},
+ {label:'Penugasan Pendamping',path:'/admin/professional-assignments',roles:['ADMIN'],description:'Tetapkan sesi secara manual',group:'PENGELOLAAN',icon:'clipboard'},
+ {label:'Laporan Percakapan',path:'/admin/conversation-reports',roles:['ADMIN'],description:'Review dan moderasi',group:'PENGELOLAAN',icon:'shield'},
+ {label:'Antrean Konsultasi',path:'/counselor',roles:['COUNSELOR','DOKTER'],description:'Ambil sesi yang tersedia',requiresCounselorPermission:true,serviceRoles:['COUNSELOR','FACILITATOR'],group:'UTAMA',icon:'chat'},
+ {label:'Penugasan Pendamping',path:'/companion',roles:['COUNSELOR','DOKTER'],description:'Sesi yang ditugaskan admin',requiresCounselorPermission:true,serviceRoles:['COMPANION'],group:'UTAMA',icon:'users'},
+ {label:'Penjangkauan',path:'/outreach',roles:['COUNSELOR','DOKTER'],description:'Kasus lapangan dan rujukan',requiresCounselorPermission:true,serviceRoles:['OUTREACH_WORKER'],group:'UTAMA',icon:'clipboard'},
+ {label:'Antrean Pengaduan',path:'/complaint-officer',roles:['COMPLAINT_OFFICER','SUPERVISOR'],description:'Tiket perlu ditindaklanjuti',group:'UTAMA',icon:'clipboard'},
+ {label:'Laporan Percakapan',path:'/supervisor/conversation-reports',roles:['SUPERVISOR'],description:'Review terbatas',group:'PENGELOLAAN',icon:'shield'},
+ {label:'Reassign Pengaduan',path:'/supervisor/complaint-reassignment',roles:['SUPERVISOR'],description:'Alihkan petugas dengan audit',group:'PENGELOLAAN',icon:'users'},
+ {label:'Profil & Keamanan',path:'/account',roles:['PASIEN','DOKTER','ADMIN','COUNSELOR','COMPLAINT_OFFICER','SUPERVISOR'],description:'Akun dan sesi',group:'PENGATURAN',icon:'settings'}
 ];
+function normalizePath(path:string){const normalized=path.replace(/\/+$/,'');return normalized||'/'}
+function matchesPath(pathname:string,itemPath:string){const current=normalizePath(pathname),target=normalizePath(itemPath);return current===target||current.startsWith(`${target}/`)}
+export function getActiveNavPath(pathname:string,items:NavigationItem[]){return items.map(item=>({item,score:[item.path,...(item.activePaths??[])].filter(path=>matchesPath(pathname,path)).reduce((longest,path)=>Math.max(longest,normalizePath(path).length),-1)})).filter(({score})=>score>=0).sort((a,b)=>b.score-a.score)[0]?.item.path??null}
+export function getVisibleNavigationItems(role:UserRole,counselorEnabled=false,serviceRole:ProfessionalServiceRole|null='COUNSELOR'){return navItems.filter(item=>item.roles.includes(role)&&(!item.requiresCounselorPermission||counselorEnabled)&&(!item.serviceRoles||Boolean(serviceRole&&item.serviceRoles.includes(serviceRole))))}
 
-export function AppShell() {
-  const { user, logout } = useAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  const links = user ? navItems.filter((item) => item.roles.includes(user.role)) : [];
-
-  const handleLogout = () => {
-    logout();
-  };
-
-  return (
-    <div className="flex min-h-screen bg-slate-50">
-      <aside className="hidden w-72 flex-col border-r border-slate-200 bg-white/90 backdrop-blur md:flex">
-        <div className="flex items-center gap-2 px-6 py-5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-inner">
-            <img
-              src="/brand/logo-sehaticare.png"
-              alt="SEHATiCare"
-              className="h-8 w-8 object-contain"
-            />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-900">SEHATiCare</p>
-            <p className="text-xs text-slate-500">Empati untuk semua pasien</p>
-          </div>
-        </div>
-        <div className="px-6 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Navigasi
-        </div>
-        <nav className="flex-1 space-y-1 px-3 pb-6">
-          {links.map((item) => {
-            const active = location.pathname.startsWith(item.path);
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`block rounded-xl px-4 py-3 transition ${
-                  active
-                    ? 'bg-brand text-white shadow-sm'
-                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <div className="text-sm font-semibold">{item.label}</div>
-                {item.description ? <div className="text-xs opacity-80">{item.description}</div> : null}
-              </Link>
-            );
-          })}
-        </nav>
-      </aside>
-
-      <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur md:px-8">
-          <div className="flex items-center gap-3">
-            <div className="md:hidden">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => navigate(roleHome[(user?.role ?? 'PASIEN') as UserRole])}
-              >
-                Menu
-              </Button>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-slate-500">Area pengelolaan</p>
-              <p className="text-base font-semibold text-slate-900">
-                {user ? formatRole(user.role) : 'Pengguna'}
-              </p>
-            </div>
-          </div>
-          {user && (
-            <div className="flex items-center gap-3">
-              <div className="flex flex-col text-right">
-                <span className="text-sm font-semibold text-slate-900">{user.full_name}</span>
-                <span className="text-xs text-slate-500">{user.email ?? 'Tidak ada email'}</span>
-              </div>
-              <Badge variant="info">{formatRole(user.role)}</Badge>
-              <Button variant="outline" size="sm" onClick={handleLogout}>
-                Logout
-              </Button>
-            </div>
-          )}
-        </header>
-
-        <main className="flex-1 px-4 py-6 md:px-8">
-          <Outlet />
-        </main>
-      </div>
-    </div>
-  );
+export function AppShell(){
+ const{user,token,logout,handleUnauthorized}=useAuth();const location=useLocation();const[counselorEnabled,setCounselorEnabled]=useState(false);const[serviceRole,setServiceRole]=useState<ProfessionalServiceRole|null>(null);const[drawerOpen,setDrawerOpen]=useState(false);const[collapsed,setCollapsed]=useState(false);
+ useEffect(()=>{let active=true;if(!user||!token||!['COUNSELOR','DOKTER'].includes(user.role)){setCounselorEnabled(false);setServiceRole(null);return()=>{active=false}}void apiFetch<{enabled:boolean;service_role:ProfessionalServiceRole|null}>('/counselor/profile/me',{}, {token,onUnauthorized:handleUnauthorized}).then(r=>{if(active){setCounselorEnabled(r.enabled);setServiceRole(r.service_role)}}).catch(()=>{if(active){setCounselorEnabled(false);setServiceRole(null)}});return()=>{active=false}},[handleUnauthorized,token,user]);
+ useEffect(()=>setDrawerOpen(false),[location.pathname]);
+ useEffect(()=>{if(!drawerOpen)return;const close=(e:KeyboardEvent)=>{if(e.key==='Escape')setDrawerOpen(false)};document.addEventListener('keydown',close);return()=>document.removeEventListener('keydown',close)},[drawerOpen]);
+ const links=user?getVisibleNavigationItems(user.role,counselorEnabled,serviceRole):[];const activePath=getActiveNavPath(location.pathname,links);const groups=[...new Set(links.filter(i=>i.path!=='/account').map(i=>i.group))];const activeLabel=links.find(i=>i.path===activePath)?.label??formatRole(user?.role??'PASIEN');
+ const navigation=(mobile=false)=><><div className="flex min-h-20 items-center justify-between gap-2 border-b border-slate-100 px-4"><Link to={user?.role==='PASIEN'?'/patient':'/'} className="flex min-w-0 items-center gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm"><img src="/brand/app-icon-192.png" alt="" className="h-full w-full object-cover"/></span>{(!collapsed||mobile)&&<span className="min-w-0"><span className="block font-bold text-slate-950">SEHATiCare</span><span className="block truncate text-xs text-slate-500">Ruang dukungan yang aman</span></span>}</Link>{mobile?<button type="button" onClick={()=>setDrawerOpen(false)} aria-label="Tutup menu" className="inline-flex h-11 w-11 items-center justify-center rounded-xl hover:bg-slate-100"><Icon name="close"/></button>:null}</div><nav aria-label="Navigasi akun" className="flex-1 overflow-y-auto px-3 py-4">{groups.map(group=><div key={group} className="mb-5">{(!collapsed||mobile)&&<p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-[.14em] text-slate-400">{group}</p>}<div className="space-y-1">{links.filter(i=>i.group===group&&i.path!=='/account').map(item=><NavLink key={item.path} item={item} active={item.path===activePath} compact={collapsed&&!mobile}/>)}</div></div>)}</nav><div className="border-t border-slate-100 p-3">{links.find(i=>i.path==='/account')?<NavLink item={links.find(i=>i.path==='/account')!} active={activePath==='/account'} compact={collapsed&&!mobile}/>:null}<button type="button" onClick={()=>logout()} aria-label="Keluar dari akun" title={collapsed&&!mobile?'Keluar':undefined} className="mt-1 flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-semibold text-slate-600 hover:bg-rose-50 hover:text-rose-800"><Icon name="logout"/>{(!collapsed||mobile)&&<span>Keluar</span>}</button></div></>;
+ return <div className="min-h-screen bg-[#f7fafc]"><a href="#app-main" className="sr-only z-[100] rounded-lg bg-white p-3 focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Lewati ke konten utama</a><aside className={`fixed inset-y-0 left-0 z-50 hidden flex-col border-r border-slate-200/80 bg-white transition-[width] md:flex ${collapsed?'w-20':'w-64'}`}>{navigation()}<button type="button" onClick={()=>setCollapsed(v=>!v)} aria-label={collapsed?'Perluas sidebar':'Ciutkan sidebar'} className="absolute -right-4 top-24 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm"><Icon name="chevron" className={`h-4 w-4 transition ${collapsed?'rotate-0':'rotate-180'}`}/></button></aside>{drawerOpen?<div className="fixed inset-0 z-50 md:hidden"><button className="absolute inset-0 bg-slate-950/50" aria-label="Tutup menu" onClick={()=>setDrawerOpen(false)}/><aside className="relative flex h-full w-[min(88vw,20rem)] flex-col bg-white shadow-2xl">{navigation(true)}</aside></div>:null}
+ <div className={`min-h-screen transition-[padding] ${collapsed?'md:pl-20':'md:pl-64'}`}><header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-3 border-b border-slate-200/80 bg-white/90 px-4 backdrop-blur sm:px-6"><div className="flex min-w-0 items-center gap-3"><button type="button" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 md:hidden" onClick={()=>setDrawerOpen(true)} aria-label="Buka menu" aria-expanded={drawerOpen}><Icon name="menu"/></button><div className="min-w-0"><p className="text-xs text-slate-500">Beranda <span aria-hidden="true">/</span></p><p className="truncate font-bold text-slate-900">{activeLabel}</p></div></div>{user?<div className="flex items-center gap-2"><button type="button" className="hidden h-11 w-11 items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 sm:inline-flex" aria-label="Notifikasi"><Icon name="bell"/></button><Link to="/account" className="flex min-h-11 items-center gap-3 rounded-xl px-2 hover:bg-slate-100"><span className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-100 font-bold text-sky-800">{user.full_name.slice(0,1).toUpperCase()}</span><span className="hidden text-right lg:block"><span className="block max-w-40 truncate text-sm font-bold text-slate-900">{user.account_mode==='ANONYMOUS'?'Pengguna anonim':user.full_name}</span><span className="block text-xs text-slate-500">{formatRole(user.role)}</span></span></Link></div>:null}</header><main id="app-main" className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8"><Outlet/></main></div><ConsultationFloatingAction/></div>
 }
+function NavLink({item,active,compact}:{item:NavigationItem;active:boolean;compact:boolean}){return <Link to={item.path} aria-current={active?'page':undefined} title={compact?item.label:undefined} className={`group flex min-h-12 items-center gap-3 rounded-xl px-3 transition ${active?'bg-brand text-white shadow-sm':'text-slate-600 hover:bg-sky-50 hover:text-brand'}`}><Icon name={item.icon} className="h-5 w-5 shrink-0"/><span className={compact?'sr-only':'min-w-0'}><span className="block truncate text-sm font-bold">{item.label}</span>{item.description?<span className={`block truncate text-xs ${active?'text-white/75':'text-slate-400'}`}>{item.description}</span>:null}</span></Link>}

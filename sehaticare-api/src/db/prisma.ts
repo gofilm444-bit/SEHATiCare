@@ -12,18 +12,8 @@ prisma.$use(async (params, next) => {
     return await next(params);
   } catch (err) {
     if (isPrismaConnectionError(err)) {
-      if ((err as any)?.name === 'DatabaseUnavailableError') throw err;
-      let target: string | undefined;
-      try {
-        const url = new URL(env.DATABASE_URL);
-        const dbHost = url.hostname || 'localhost';
-        const dbPort = url.port || '5432';
-        const dbName = url.pathname?.replace(/^\//, '') || '(unknown db)';
-        target = `${dbHost}:${dbPort}/${dbName}`;
-      } catch {
-        // ignore
-      }
-      throw new DatabaseUnavailableError(target);
+      if (err instanceof DatabaseUnavailableError) throw err;
+      throw new DatabaseUnavailableError();
     }
     throw err;
   }

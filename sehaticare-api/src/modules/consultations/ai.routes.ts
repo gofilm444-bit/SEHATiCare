@@ -4,6 +4,7 @@ import { prisma } from '../../db/prisma';
 import { addAiMessage } from '../messages/messages.service';
 import { ensureNotClosed } from './consultations.guards';
 import { isPrismaConnectionError } from '../../db/prismaErrors';
+import { toSafeMessageResponse } from './consultations.presenter';
 
 export default async function aiRoutes(fastify: FastifyInstance) {
   fastify.post('/consultations/:id/ai/reply', { preHandler: [internalAuthGuard] }, async (request, reply) => {
@@ -23,7 +24,7 @@ export default async function aiRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ message: 'Invalid consultation status' });
       }
       const message = await addAiMessage(id, body.response_text);
-      return reply.send(message);
+      return reply.send(toSafeMessageResponse(message));
     } catch (err) {
       if (isPrismaConnectionError(err)) throw err;
       return reply.status(400).send({ message: (err as Error).message });

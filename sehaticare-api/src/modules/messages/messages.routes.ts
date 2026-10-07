@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { consultation_status } from '@prisma/client';
 import { authGuard } from '../../middlewares/auth';
 import { prisma } from '../../db/prisma';
-import { ensureNotClosed } from '../consultations/consultations.guards';
+import { ensureConsultationAccess, ensureNotClosed } from '../consultations/consultations.guards';
 import { createMessageForConsultation, listMessagesForConsultation } from '../consultations/consultations.service';
 import {
   buildPrompt,
@@ -14,6 +14,9 @@ import {
   shouldRespond
 } from '../consultations/aiResponder.service';
 import { audit } from '../../utils/auditEvents';
+import { toSafeMessageResponse } from '../consultations/consultations.presenter';
+import { standardErrorResponses } from '../../schemas/errorResponse';
+import { sanitizeErrorForLog } from '../../utils/logSanitizer';
 
 const RED_FLAG_KEYWORDS = [
   'ingin bunuh diri',
@@ -81,11 +84,17 @@ const triggerAiResponder = async (params: {
     await persistAIMessage(params.consultationId, replyText);
     params.log.info({ consultationId: params.consultationId }, 'AI responder replied');
   } catch (err) {
-    params.log.warn({ err, consultationId: params.consultationId }, 'AI responder failed');
+    params.log.warn(
+      { error: sanitizeErrorForLog(err), consultationId: params.consultationId },
+      'AI responder failed'
+    );
     try {
       await persistAIMessage(params.consultationId, getFallbackReply());
     } catch (fallbackErr) {
-      params.log.warn({ err: fallbackErr, consultationId: params.consultationId }, 'AI fallback reply failed');
+      params.log.warn(
+        { error: sanitizeErrorForLog(fallbackErr), consultationId: params.consultationId },
+        'AI fallback reply failed'
+      );
     }
   }
 };
@@ -113,6 +122,7 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
           }
         },
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -124,7 +134,8 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
                     id: { type: 'string' },
                     sender_role: { type: 'string', enum: ['PASIEN', 'DOKTER', 'AI'] },
                     content: { type: 'string' },
-                    created_at: { type: 'string', format: 'date-time' }
+                    created_at: { type: 'string', format: 'date-time' },
+                    voice_note_id: { type: ['string', 'null'] }
                   },
                   required: ['id', 'sender_role', 'content', 'created_at']
                 }
@@ -159,18 +170,17 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
         }
       });
       if (!consultation) return reply.status(404).send({ message: 'Not found' });
-      if (request.user!.role === 'PASIEN' && consultation.patient_id !== request.user!.userId) {
-        return reply.status(404).send({ message: 'Consultation not found' });
+      if (request.user!.role !== 'PASIEN' && request.user!.role !== 'DOKTER') {
+        return reply.status(403).send({ message: 'Forbidden' });
       }
-      if (request.user!.role === 'DOKTER' && consultation.assignedDoctorId !== request.user!.userId) {
-        return reply.status(404).send({ message: 'Consultation not found' });
-      }
-      if (request.user!.role !== 'PASIEN' && request.user!.role !== 'DOKTER' && request.user!.role !== 'ADMIN') {
+      try {
+        ensureConsultationAccess(consultation, request.user!);
+      } catch {
         return reply.status(404).send({ message: 'Consultation not found' });
       }
       const messages = await listMessagesForConsultation(id, afterDate);
       const aiTyping = await getAiTypingState(consultation);
-      return reply.send({ messages, ai_typing: aiTyping });
+      return reply.send({ messages: messages.map(toSafeMessageResponse), ai_typing: aiTyping });
     }
   );
 
@@ -194,6 +204,7 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
           required: ['content']
         },
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -201,6 +212,7 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
               sender_role: { type: 'string', enum: ['PASIEN', 'DOKTER', 'AI'] },
               content: { type: 'string' },
               created_at: { type: 'string', format: 'date-time' },
+              voice_note_id: { type: ['string', 'null'] },
               red_flag_triggered: { type: 'boolean' }
             },
             required: ['id', 'sender_role', 'content', 'created_at']
@@ -237,14 +249,13 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
         return reply.status(403).send({ message: (err as Error).message });
       }
 
-      if (request.user!.role === 'PASIEN' && consultation.patient_id !== request.user!.userId) {
-        return reply.status(404).send({ message: 'Consultation not found' });
-      }
-      if (request.user!.role === 'DOKTER' && consultation.assignedDoctorId !== request.user!.userId) {
-        return reply.status(404).send({ message: 'Consultation not found' });
-      }
       if (request.user!.role !== 'PASIEN' && request.user!.role !== 'DOKTER') {
         return reply.status(403).send({ message: 'Forbidden' });
+      }
+      try {
+        ensureConsultationAccess(consultation, request.user!);
+      } catch {
+        return reply.status(404).send({ message: 'Consultation not found' });
       }
 
       const senderRole = request.user!.role === 'DOKTER' ? 'DOKTER' : 'PASIEN';
@@ -285,7 +296,7 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
             actorRole: 'AI',
             action: 'RED_FLAG_DETECTED',
             consultationId: id,
-            meta: { matched, messageId: created.id }
+            meta: { match_count: matched.length, messageId: created.id }
           });
           await audit.log(prisma, {
             actorUserId: null,
@@ -315,7 +326,7 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
           log: fastify.log
         });
       }
-      return reply.send({ ...created, red_flag_triggered: redFlagTriggered });
+      return reply.send({ ...toSafeMessageResponse(created), red_flag_triggered: redFlagTriggered });
     }
   );
 }

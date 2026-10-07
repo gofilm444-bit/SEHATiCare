@@ -2,11 +2,22 @@ import { FastifyInstance } from 'fastify';
 import { authGuard } from '../../middlewares/auth';
 import { prisma } from '../../db/prisma';
 import { ensureConsultationAccess, ensureNotClosed } from '../consultations/consultations.guards';
-import { commitUpload, createUploadSession, getVoiceNoteWithUrl, validateAudio } from './voiceNotes.service';
+import {
+  commitUpload,
+  createUploadSession,
+  createVoiceNoteDownloadUrl,
+  getVoiceNote
+} from './voiceNotes.service';
+import { validateAudio } from './voiceNotes.policy';
+import { sensitiveRateLimits } from '../../config/rateLimits';
 import { isPrismaConnectionError } from '../../db/prismaErrors';
+import { toSafeVoiceNoteDownloadResponse, toSafeVoiceNoteResponse } from './voiceNotes.presenter';
 
 export default async function voiceNotesRoutes(fastify: FastifyInstance) {
-  fastify.post('/consultations/:id/voice-notes/upload-url', { preHandler: [authGuard] }, async (request, reply) => {
+  fastify.post('/consultations/:id/voice-notes/upload-url', {
+    preHandler: [authGuard],
+    config: { rateLimit: sensitiveRateLimits.voiceUploadUrl }
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = request.body as { content_type?: string; file_size_bytes?: number };
     if (!body.content_type || typeof body.file_size_bytes !== 'number') {
@@ -20,7 +31,7 @@ export default async function voiceNotesRoutes(fastify: FastifyInstance) {
 
     const consultation = await prisma.consultations.findUnique({
       where: { id },
-      include: { consultation_participants: true }
+      select: { id: true, patient_id: true, assignedDoctorId: true, status: true }
     });
     if (!consultation) return reply.status(404).send({ message: 'Not found' });
     try {
@@ -43,7 +54,10 @@ export default async function voiceNotesRoutes(fastify: FastifyInstance) {
     return reply.send({ upload_url: result.uploadUrl, upload_session_id: result.session.id, expires_at: result.session.expires_at });
   });
 
-  fastify.post('/consultations/:id/voice-notes/commit', { preHandler: [authGuard] }, async (request, reply) => {
+  fastify.post('/consultations/:id/voice-notes/commit', {
+    preHandler: [authGuard],
+    config: { rateLimit: sensitiveRateLimits.voiceCommit }
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = request.body as { upload_session_id?: string; content_type?: string; file_size_bytes?: number };
     if (!body.upload_session_id || !body.content_type || typeof body.file_size_bytes !== 'number') {
@@ -52,7 +66,7 @@ export default async function voiceNotesRoutes(fastify: FastifyInstance) {
 
     const consultation = await prisma.consultations.findUnique({
       where: { id },
-      include: { consultation_participants: true }
+      select: { id: true, patient_id: true, assignedDoctorId: true, status: true }
     });
     if (!consultation) return reply.status(404).send({ message: 'Not found' });
     try {
@@ -67,7 +81,7 @@ export default async function voiceNotesRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const voiceNote = await commitUpload({
+      const result = await commitUpload({
         consultationId: id,
         uploadSessionId: body.upload_session_id,
         actorId: request.user!.userId,
@@ -75,34 +89,36 @@ export default async function voiceNotesRoutes(fastify: FastifyInstance) {
         contentType: body.content_type,
         fileSizeBytes: body.file_size_bytes
       });
-      return reply.send(voiceNote);
+      return reply.send(toSafeVoiceNoteResponse(result.voiceNote, result.messageId));
     } catch (err) {
       if (isPrismaConnectionError(err)) throw err;
       return reply.status(400).send({ message: (err as Error).message });
     }
   });
 
-  fastify.get('/voice-notes/:voiceNoteId', { preHandler: [authGuard] }, async (request, reply) => {
+  fastify.get('/voice-notes/:voiceNoteId', {
+    preHandler: [authGuard],
+    config: { rateLimit: sensitiveRateLimits.voiceDownload }
+  }, async (request, reply) => {
     const { voiceNoteId } = request.params as { voiceNoteId: string };
-    const voiceNoteResult = await getVoiceNoteWithUrl(voiceNoteId);
-    if (!voiceNoteResult) return reply.status(404).send({ message: 'Not found' });
+    const voiceNote = await getVoiceNote(voiceNoteId);
+    if (!voiceNote) return reply.status(404).send({ message: 'Not found' });
     const consultation = await prisma.consultations.findUnique({
-      where: { id: voiceNoteResult.voiceNote.consultation_id },
-      include: { consultation_participants: true }
+      where: { id: voiceNote.consultation_id },
+      select: { id: true, patient_id: true, assignedDoctorId: true, status: true }
     });
     if (!consultation) return reply.status(404).send({ message: 'Consultation not found' });
     try {
       ensureConsultationAccess(consultation, request.user!);
     } catch {
-      return reply.status(403).send({ message: 'Forbidden' });
+      return reply.status(404).send({ message: 'Not found' });
     }
-    return reply.send({
-      id: voiceNoteResult.voiceNote.id,
-      consultation_id: voiceNoteResult.voiceNote.consultation_id,
-      storage_key: voiceNoteResult.voiceNote.storage_key,
-      content_type: voiceNoteResult.voiceNote.content_type,
-      file_size_bytes: voiceNoteResult.voiceNote.file_size_bytes,
-      download_url: voiceNoteResult.downloadUrl
-    });
+    try {
+      const downloadUrl = await createVoiceNoteDownloadUrl(voiceNote.storage_key);
+      return reply.send(toSafeVoiceNoteDownloadResponse(voiceNote, downloadUrl));
+    } catch (error) {
+      if (isPrismaConnectionError(error)) throw error;
+      return reply.status(404).send({ message: 'Voice note file not found' });
+    }
   });
 }

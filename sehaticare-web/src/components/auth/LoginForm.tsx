@@ -1,23 +1,27 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { PasswordInput } from '../ui/password-input';
 import { Label } from '../ui/label';
 import { useAuth } from '../../context/AuthContext';
 import { getDashboardPath } from '../../lib/roles';
-import { API_BASE_URL } from '../../lib/api';
+import { getAuthErrorMessage } from '../../lib/authErrors';
+import { Icon } from '../ui/icons';
 
 type LoginFormProps = {
   onSuccess?: () => void;
+  redirectTo?: string;
 };
 
-export function LoginForm({ onSuccess }: LoginFormProps) {
-  const { login, isAuthenticated, user, logout } = useAuth();
+export function LoginForm({ onSuccess, redirectTo }: LoginFormProps) {
+  const { login, anonymousLogin, isAuthenticated, user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [loginMethod, setLoginMethod] = useState<'password' | 'otp'>('password');
-  const [email, setEmail] = useState('patient@sehaticare.local');
-  const [password, setPassword] = useState('SehatiCare123!');
+  const [loginMethod, setLoginMethod] = useState<'legacy' | 'anonymous'>('anonymous');
+  const [email, setEmail] = useState('');
+  const [loginId, setLoginId] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -39,18 +43,14 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
     event.preventDefault();
     setError(null);
     setSuccess(null);
-    if (loginMethod === 'otp') {
-      setError('OTP belum tersedia. Silakan gunakan login password.');
-      setLoginMethod('password');
-      return;
-    }
     setLoading(true);
     let didSucceed = false;
     try {
-      const response = await login(email, password);
-      const redirectTo =
-        (location.state as { from?: Location } | undefined)?.from?.pathname || getDashboardPath(response.user.role);
-      if (redirectTo === '/login') {
+      const response = loginMethod === 'anonymous' ? await anonymousLogin(loginId, password) : await login(email, password);
+      const destination = redirectTo && response.user.role === 'PASIEN'
+        ? redirectTo
+        : (location.state as { from?: Location } | undefined)?.from?.pathname || getDashboardPath(response.user.role);
+      if (destination === '/login') {
         logout(false);
         setError('Role tidak dikenali. Silakan hubungi admin.');
         return;
@@ -58,10 +58,9 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       didSucceed = true;
       setSuccess('Login berhasil. Mengalihkan...');
       onSuccess?.();
-      window.setTimeout(() => navigate(redirectTo, { replace: true }), 700);
+      window.setTimeout(() => navigate(destination, { replace: true }), 700);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login gagal. Periksa email dan kata sandi.';
-      setError(message);
+      setError(getAuthErrorMessage(err, 'login'));
     } finally {
       if (!didSucceed) setLoading(false);
     }
@@ -69,71 +68,74 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Jenis akun">
         <Button
           type="button"
-          variant={loginMethod === 'password' ? 'default' : 'outline'}
-          onClick={() => setLoginMethod('password')}
+          variant={loginMethod === 'anonymous' ? 'default' : 'outline'}
+          onClick={() => setLoginMethod('anonymous')}
+          role="tab"
+          aria-selected={loginMethod === 'anonymous'}
         >
-          Password
+          Pasien anonim
         </Button>
         <Button
           type="button"
-          variant={loginMethod === 'otp' ? 'default' : 'outline'}
-          onClick={() => setLoginMethod('otp')}
+          variant={loginMethod === 'legacy' ? 'default' : 'outline'}
+          onClick={() => setLoginMethod('legacy')}
+          role="tab"
+          aria-selected={loginMethod === 'legacy'}
         >
-          OTP
+          Petugas &amp; Pengelola
         </Button>
       </div>
-      {loginMethod === 'otp' ? (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          OTP belum tersedia. Gunakan login password terlebih dahulu.
-        </div>
-      ) : null}
-      <div className="space-y-2">
-        <Label htmlFor="email">Email</Label>
-        <Input
-          id="email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@example.com"
-          autoComplete="email"
-          required
-        />
-      </div>
+      <p className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-900">
+        {loginMethod === 'anonymous'
+          ? 'Untuk pasien yang masuk menggunakan ID anonim.'
+          : 'Untuk konselor, fasilitator, pendamping, penjangkau, dokter, admin, dan petugas lainnya yang masuk menggunakan email.'}
+      </p>
+      {loginMethod === 'anonymous' ? <div className="space-y-2"><Label htmlFor="login-id">ID Login Anonim</Label><Input id="login-id" value={loginId} onChange={(e) => setLoginId(e.target.value.toUpperCase())} placeholder="SC-XXXX-XXXX-XXXX" autoComplete="username" required /></div> :
+      <div className="space-y-2"><Label htmlFor="email">Email Petugas atau Pengelola</Label><Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nama@contoh.com" autoComplete="email" required /></div>}
       <div className="space-y-2">
         <Label htmlFor="password">Password</Label>
-        <Input
+        <PasswordInput
           id="password"
-          type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="********"
           autoComplete="current-password"
+          visibilityLabel="kata sandi"
           required
         />
       </div>
       {success && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {success}
         </div>
       )}
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
       )}
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? 'Memproses...' : 'Masuk'}
       </Button>
+      <div className="flex justify-end text-sm"><Link className="font-medium text-brand underline" to="/recover-account">Lupa ID atau kata sandi?</Link></div>
+      <section className="space-y-3 border-t border-slate-200 pt-4" aria-labelledby="create-account-title">
+        <div className="text-center">
+          <h3 id="create-account-title" className="font-bold text-slate-900">Belum memiliki akun?</h3>
+          <p className="mt-1 text-xs text-slate-500">Pilih jenis akun sesuai kebutuhan Anda.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Link to="/register" className="group flex min-h-24 items-start gap-3 rounded-xl border-2 border-emerald-100 bg-emerald-50/60 p-4 text-left transition hover:border-emerald-400 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-100">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800"><Icon name="user" /></span>
+            <span><strong className="block text-sm text-slate-950">Buat akun Pasien</strong><span className="mt-1 block text-xs leading-5 text-slate-600">Akun anonim, tanpa nama asli, email, atau nomor telepon.</span></span>
+          </Link>
+          <Link to="/register-counselor" className="group flex min-h-24 items-start gap-3 rounded-xl border-2 border-sky-100 bg-sky-50/60 p-4 text-left transition hover:border-sky-400 hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-800"><Icon name="users" /></span>
+            <span><strong className="block text-sm text-slate-950">Buat akun Tenaga Profesional</strong><span className="mt-1 block text-xs leading-5 text-slate-600">Untuk konselor, fasilitator, pendamping, dan penjangkau; diverifikasi admin.</span></span>
+          </Link>
+        </div>
+      </section>
       {loading ? <p className="text-xs text-slate-500">Memproses login...</p> : null}
-      <p className="text-xs text-slate-500">
-        Backend:{' '}
-        <span className="font-medium text-slate-700">
-          {API_BASE_URL.startsWith('http')
-            ? API_BASE_URL
-            : `${API_BASE_URL}${import.meta.env.VITE_API_TARGET ? ` -> ${import.meta.env.VITE_API_TARGET}` : ''}`}
-        </span>
-      </p>
     </form>
   );
 }

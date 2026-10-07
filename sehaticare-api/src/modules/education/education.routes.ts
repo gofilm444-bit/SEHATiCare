@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { getEducationById, listPublishedEducation } from './education.service';
+import { toSafeEducationDetail } from './education.presenter';
 
 function extractEducationMeta(body_markdown: string) {
   const lines = (body_markdown ?? '').split('\n');
@@ -106,15 +107,6 @@ export default async function educationRoutes(fastify: FastifyInstance) {
     if (!article) return reply.status(404).send({ message: 'Article not found' });
 
     const extracted = extractEducationMeta(article.body_markdown ?? '');
-    const cleanBody = extracted.body_markdown.replace(/\s+/g, ' ').trim();
-    const derivedSummary = cleanBody.slice(0, 140);
-    const derivedCategory = extracted.category ?? (article.title.toLowerCase().includes('hiv') ? 'HIV/AIDS' : null);
-
-    return reply.send({
-      ...article,
-      body_markdown: extracted.body_markdown,
-      summary: extracted.summary ?? derivedSummary,
-      category: derivedCategory
-    });
+    return reply.send(toSafeEducationDetail(article, extracted));
   });
 }

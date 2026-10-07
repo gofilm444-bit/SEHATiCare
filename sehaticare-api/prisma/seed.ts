@@ -2,12 +2,14 @@ import '../src/config/env';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
+import { assertDemoSeedAllowed } from '../src/utils/seedPolicy';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  const defaultPassword = 'SehatiCare123!';
-  const password_hash = await bcrypt.hash(defaultPassword, 10);
+  const seedPassword = process.env.SEED_DEMO_PASSWORD;
+  assertDemoSeedAllowed(process.env.NODE_ENV, seedPassword);
+  const password_hash = await bcrypt.hash(seedPassword, 12);
   const now = new Date();
 
   const admin = await prisma.users.upsert({
@@ -162,8 +164,8 @@ main()
   .then(() => {
     console.log('Seed completed');
   })
-  .catch((e) => {
-    console.error('Seed failed', e);
+  .catch(() => {
+    console.error('Seed failed; review sanitized application logs for details');
     process.exit(1);
   })
   .finally(async () => {

@@ -1,12 +1,10 @@
 export class DatabaseUnavailableError extends Error {
   code = 'P1001';
   errorCode = 'P1001';
-  target?: string;
 
-  constructor(target?: string) {
+  constructor() {
     super('Database is not reachable');
     this.name = 'DatabaseUnavailableError';
-    this.target = target;
   }
 }
 

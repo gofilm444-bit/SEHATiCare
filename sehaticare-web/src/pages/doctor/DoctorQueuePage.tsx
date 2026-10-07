@@ -5,10 +5,10 @@ import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { useAuth } from '../../context/AuthContext';
+import { EmptyState, PageHeader, StatusBadge } from '../../components/ui/patterns';
 
 type QueueItem = {
   id: string;
-  patient_id: string;
   status: string;
   initial_complaint: string;
   opened_at: string;
@@ -133,7 +133,7 @@ export function DoctorQueuePage() {
       );
     }
     if (activeItems.length === 0) {
-      return <p className="text-sm text-slate-600">Belum ada konsultasi aktif.</p>;
+      return <EmptyState icon="chat" title="Belum ada konsultasi aktif" description="Sesi yang telah ditugaskan kepada Anda akan muncul di bagian ini." />;
     }
 
     return (
@@ -142,10 +142,9 @@ export function DoctorQueuePage() {
           <div key={item.id} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-900">{item.initial_complaint}</p>
+                <p className="text-sm font-semibold text-slate-900">Sesi konsultasi aktif</p>
                 <p className="text-xs text-slate-500">
                   Dibuka {new Date(item.opened_at).toLocaleString('id-ID')}
-                  {item.patient?.full_name ? ` - ${item.patient.full_name}` : ''}
                 </p>
                 <p className="text-xs text-slate-500">
                   Update {new Date(item.updated_at).toLocaleString('id-ID')}
@@ -177,14 +176,14 @@ export function DoctorQueuePage() {
       );
     }
     if (items.length === 0) {
-      return <p className="text-sm text-slate-600">Belum ada antrian.</p>;
+      return <EmptyState icon="clipboard" title="Antrean sedang kosong" description="Sesi yang tersedia untuk diambil akan muncul di bagian ini." />;
     }
 
     const activeQueueItems = items.filter((item) => item.status === 'MENUNGGU_DOKTER' || item.status === 'AI_AKTIF');
     const activeIds = new Set(activeItems.map((item) => item.id));
     const visibleItems = activeQueueItems.filter((item) => !activeIds.has(item.id));
     if (visibleItems.length === 0) {
-      return <p className="text-sm text-slate-600">Belum ada antrian.</p>;
+      return <EmptyState icon="clipboard" title="Antrean sedang kosong" description="Semua sesi yang tersedia sudah ditangani." />;
     }
     const sortedItems = [...visibleItems].sort((a, b) => {
       const priorityDelta = (b.priority ?? 0) - (a.priority ?? 0);
@@ -206,10 +205,9 @@ export function DoctorQueuePage() {
           <div key={item.id} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-900">{item.initial_complaint}</p>
+                <p className="text-sm font-semibold text-slate-900">Sesi menunggu penugasan</p>
                 <p className="text-xs text-slate-500">
-                  Dibuka {new Date(item.opened_at).toLocaleString('id-ID')} -{' '}
-                  {item.patient?.full_name ? item.patient.full_name : `Pasien #${item.patient_id.slice(0, 8)}`}
+                  Masuk antrean {new Date(item.opened_at).toLocaleString('id-ID')}
                 </p>
                 <p className="text-xs text-slate-500">
                   Aktivitas terakhir {new Date(item.last_message_at).toLocaleString('id-ID')}
@@ -238,19 +236,13 @@ export function DoctorQueuePage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-500">Panel dokter</p>
-          <h1 className="text-2xl font-semibold text-slate-900">Antrian konsultasi</h1>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="page-shell">
+      <PageHeader eyebrow="Ruang kerja dokter" title="Antrean konsultasi" description="Ambil dan lanjutkan hanya sesi yang ditugaskan kepada Anda. Ringkasan tidak menampilkan identitas atau isi keluhan." action={<div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={loadQueue} disabled={loading}>
-            Refresh
+            Perbarui
           </Button>
-          <Badge variant="success">DOKTER</Badge>
-        </div>
-      </div>
+          <StatusBadge variant="success">Akun dokter aktif</StatusBadge>
+        </div>} />
 
       {claimNotice ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

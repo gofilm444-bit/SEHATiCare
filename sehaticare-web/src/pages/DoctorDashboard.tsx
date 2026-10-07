@@ -8,10 +8,10 @@ import { useAuth } from '../context/AuthContext';
 
 type QueueItem = {
   id: string;
-  patient_id: string;
   status: string;
   initial_complaint: string;
   opened_at: string;
+  patient?: { full_name: string } | null;
 };
 
 export function DoctorDashboard() {
@@ -78,9 +78,9 @@ export function DoctorDashboard() {
               {items.map((item) => (
                 <div key={item.id} className="flex flex-col gap-2 py-3 md:flex-row md:items-center md:justify-between">
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-slate-900">Keluhan: {item.initial_complaint}</p>
+                    <p className="text-sm font-semibold text-slate-900">Sesi menunggu penugasan</p>
                     <p className="text-xs text-slate-500">
-                      Dibuka {new Date(item.opened_at).toLocaleString('id-ID')} · Pasien #{item.patient_id.slice(0, 8)}
+                      Masuk antrean {new Date(item.opened_at).toLocaleString('id-ID')}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

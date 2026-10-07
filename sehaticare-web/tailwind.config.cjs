@@ -8,14 +8,18 @@ module.exports = {
       },
       colors: {
         brand: {
-          DEFAULT: '#0f766e',
-          light: '#14b8a6',
-          dark: '#0d5c56'
-        }
+          DEFAULT: '#176b87',
+          light: '#dff5f8',
+          dark: '#123b5c'
+        },
+        empathy: '#d96863',
+        support: '#856fbe',
+        progress: '#14846f'
       },
       borderRadius: {
         lg: '0.75rem',
-        xl: '1rem'
+        xl: '1rem',
+        '2xl': '1.25rem'
       }
     }
   },

@@ -36,6 +36,11 @@ const minioClient = new Client({
   region: env.STORAGE_REGION
 });
 
+export async function assertStorageReady() {
+  const exists = await minioClient.bucketExists(env.STORAGE_BUCKET);
+  if (!exists) throw new Error('Voice note storage is unavailable');
+}
+
 function rewritePresignedUrl(presignedUrl: string) {
   const publicBase = env.STORAGE_PUBLIC_BASE_URL;
   if (!publicBase) return presignedUrl;
@@ -49,10 +54,6 @@ function rewritePresignedUrl(presignedUrl: string) {
   } catch {
     return presignedUrl;
   }
-}
-
-export function getStorageKey(consultationId: string, suffix: string) {
-  return `voice-notes/${consultationId}/${suffix}`;
 }
 
 export async function generateUploadUrl(key: string, contentType: string) {
@@ -71,4 +72,32 @@ export async function generateDownloadUrl(key: string) {
     env.STORAGE_SIGNED_URL_TTL_SECONDS
   );
   return rewritePresignedUrl(presignedUrl);
+}
+
+export async function getObjectMetadata(key: string) {
+  const stat = await minioClient.statObject(env.STORAGE_BUCKET, key);
+  const metadata: unknown = stat.metaData;
+  let contentType: string | null = null;
+  if (metadata && typeof metadata === 'object') {
+    for (const [name, value] of Object.entries(metadata)) {
+      if (name.toLowerCase() === 'content-type' && typeof value === 'string') {
+        contentType = value;
+        break;
+      }
+    }
+  }
+  return { size: stat.size, contentType };
+}
+
+export async function getObjectPrefix(key: string, length = 16) {
+  const stream = await minioClient.getPartialObject(env.STORAGE_BUCKET, key, 0, length);
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).subarray(0, length);
+}
+
+export async function removeStoredObject(key: string) {
+  await minioClient.removeObject(env.STORAGE_BUCKET, key);
 }

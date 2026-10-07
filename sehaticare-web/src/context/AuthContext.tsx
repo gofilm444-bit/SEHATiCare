@@ -1,5 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { loginRequest } from '../api/client';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { anonymousLoginRequest, loginRequest, logoutRequest, refreshSessionRequest } from '../api/client';
 import { AuthResponse, User, UserRole } from '../types/auth';
 
 interface AuthContextValue {
@@ -8,61 +8,82 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   initializing: boolean;
   login: (email: string, password: string) => Promise<AuthResponse>;
+  anonymousLogin: (loginId: string, password: string) => Promise<AuthResponse>;
   logout: (redirect?: boolean) => void;
   handleUnauthorized: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-const STORAGE_KEY = 'sehaticare.auth';
-
-interface StoredAuth {
-  token: string;
-  user: User;
-}
+const LEGACY_STORAGE_KEY = 'sehaticare.auth';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [initializing, setInitializing] = useState(true);
+  const refreshInFlight = useRef<Promise<AuthResponse> | null>(null);
+
+  const refreshSession = useCallback(() => {
+    if (!refreshInFlight.current) {
+      refreshInFlight.current = refreshSessionRequest().finally(() => {
+        refreshInFlight.current = null;
+      });
+    }
+    return refreshInFlight.current;
+  }, []);
 
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as StoredAuth;
-        setUser(parsed.user);
-        setToken(parsed.token);
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-    setInitializing(false);
-  }, []);
-
-  const persist = useCallback((payload: StoredAuth) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, []);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    let active = true;
+    void refreshSession()
+      .then((response) => {
+        if (!active) return;
+        setUser(response.user);
+        setToken(response.access_token);
+      })
+      .catch(() => {
+        if (!active) return;
+        setUser(null);
+        setToken(null);
+      })
+      .finally(() => {
+        if (active) setInitializing(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [refreshSession]);
 
   const login = useCallback(async (email: string, password: string) => {
     const response = await loginRequest(email, password);
     setUser(response.user);
     setToken(response.access_token);
-    persist({ token: response.access_token, user: response.user });
     return response;
-  }, [persist]);
+  }, []);
+
+  const anonymousLogin = useCallback(async (loginId: string, password: string) => {
+    const response = await anonymousLoginRequest(loginId, password);
+    setUser(response.user); setToken(response.access_token); return response;
+  }, []);
 
   const logout = useCallback((redirect = true) => {
     setUser(null);
     setToken(null);
-    localStorage.removeItem(STORAGE_KEY);
-    if (redirect) {
-      window.location.href = '/';
-    }
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    void logoutRequest()
+      .catch(() => undefined)
+      .finally(() => {
+        if (redirect) window.location.assign('/');
+      });
   }, []);
 
   const handleUnauthorized = useCallback(() => {
-    logout(true);
-  }, [logout]);
+    void refreshSession()
+      .then((response) => {
+        setUser(response.user);
+        setToken(response.access_token);
+      })
+      .catch(() => logout(true));
+  }, [logout, refreshSession]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -71,10 +92,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated: Boolean(token && user),
       initializing,
       login,
+      anonymousLogin,
       logout,
       handleUnauthorized
     }),
-    [user, token, initializing, login, logout, handleUnauthorized]
+    [user, token, initializing, login, anonymousLogin, logout, handleUnauthorized]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

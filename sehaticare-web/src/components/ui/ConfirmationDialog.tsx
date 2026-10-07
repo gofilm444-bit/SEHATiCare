@@ -1,0 +1,3 @@
+import { AccessibleModal } from './AccessibleModal';
+import { Button } from './button';
+export function ConfirmationDialog({open,onClose,onConfirm,title,description,confirmLabel='Lanjutkan',busy=false}:{open:boolean;onClose:()=>void;onConfirm:()=>void;title:string;description:string;confirmLabel?:string;busy?:boolean}){return <AccessibleModal open={open} onClose={onClose} title={title} description={description}><div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Button variant="outline" onClick={onClose} disabled={busy}>Batal</Button><Button onClick={onConfirm} disabled={busy}>{busy?'Memproses…':confirmLabel}</Button></div></AccessibleModal>}

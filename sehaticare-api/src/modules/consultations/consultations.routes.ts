@@ -2,7 +2,6 @@ import { FastifyInstance } from 'fastify';
 import { authGuard } from '../../middlewares/auth';
 import {
   closeConsultation,
-  createConsultation,
   finishConsultation,
   getLatestActiveForPatient,
   joinConsultation,
@@ -16,6 +15,12 @@ import { prisma } from '../../db/prisma';
 import { isPrismaConnectionError } from '../../db/prismaErrors';
 import { env } from '../../config/env';
 import { audit } from '../../utils/auditEvents';
+import {
+  consultationPublicSelect,
+  toSafeConsultationResponse,
+  toSafeDoctorConsultationResponse
+} from './consultations.presenter';
+import { standardErrorResponses } from '../../schemas/errorResponse';
 
 export default async function consultationsRoutes(fastify: FastifyInstance) {
   fastify.post(
@@ -38,12 +43,10 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
       if (request.user!.role !== 'PASIEN') {
         return reply.status(403).send({ message: 'Only patients can create consultations' });
       }
-      const body = request.body as { initial_complaint?: string };
-      if (!body.initial_complaint) {
-        return reply.status(400).send({ message: 'initial_complaint is required' });
-      }
-      const consultation = await createConsultation(request.user!.userId, body.initial_complaint);
-      return reply.send(consultation);
+      return reply.status(410).send({
+        message: 'Pembuatan konsultasi lama telah ditutup. Gunakan alur Curhat Ke Konselor terbaru.',
+        replacement_endpoint: '/counselor-conversations'
+      });
     }
   );
 
@@ -76,11 +79,14 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
           return reply.status(403).send({ message: (err as Error).message });
         }
         const consultations = await listConsultationQueue();
-        return reply.send({ items: consultations });
+        return reply.send({ items: consultations.map(toSafeDoctorConsultationResponse) });
       }
 
+      if (request.user!.role !== 'PASIEN' && request.user!.role !== 'DOKTER') {
+        return reply.status(403).send({ message: 'Forbidden' });
+      }
       const consultations = await listConsultationsForUser(request.user!.userId, request.user!.role);
-      return reply.send({ items: consultations });
+      return reply.send({ items: consultations.map(toSafeConsultationResponse) });
     }
   );
 
@@ -92,6 +98,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
         tags: ['Consultations'],
         security: [{ bearerAuth: [] }],
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -122,7 +129,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
         return reply.status(403).send({ message: 'Only patients can view active consultation' });
       }
       const active = await getLatestActiveForPatient(request.user!.userId);
-      return reply.send({ active: active ?? null });
+      return reply.send({ active: active ? toSafeConsultationResponse(active) : null });
     }
   );
 
@@ -134,6 +141,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
         tags: ['Consultations'],
         security: [{ bearerAuth: [] }],
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -164,7 +172,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
         return reply.status(403).send({ message: 'Only patients can view history' });
       }
       const items = await listPatientHistory(request.user!.userId);
-      return reply.send({ items });
+      return reply.send({ items: items.map(toSafeConsultationResponse) });
     }
   );
 
@@ -186,7 +194,11 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       const consultation = await prisma.consultations.findUnique({
         where: { id },
-        include: { consultation_participants: true, patient: true, assignedDoctor: true }
+        select: {
+          ...consultationPublicSelect,
+          patient_id: true,
+          assignedDoctorId: true
+        }
       });
       if (!consultation) return reply.status(404).send({ message: 'Not found' });
       try {
@@ -200,7 +212,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
         !consultation.red_flag &&
         !consultation.assignedDoctorId &&
         (consultation.status === 'MENUNGGU_DOKTER' || consultation.status === 'AI_AKTIF');
-      return reply.send({ ...consultation, ai_enabled: aiEnabled });
+      return reply.send({ ...toSafeConsultationResponse(consultation), ai_enabled: aiEnabled });
     }
   );
 
@@ -222,6 +234,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
           required: ['consent']
         },
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -290,6 +303,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
           required: ['id']
         },
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -359,6 +373,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
           required: ['id']
         },
         response: {
+          ...standardErrorResponses,
           200: {
             type: 'object',
             properties: {
@@ -381,7 +396,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       try {
         const updated = await finishConsultation(id, request.user!.userId);
-        return reply.send(updated);
+        return reply.send(toSafeConsultationResponse(updated));
       } catch (err) {
         if (isPrismaConnectionError(err)) throw err;
         const message = (err as Error).message;
@@ -416,7 +431,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       const claimed = await claimConsultation(id, request.user!.userId);
       if (!claimed) return reply.status(409).send({ message: 'Sudah diambil dokter lain' });
-      return reply.send(claimed);
+      return reply.send(toSafeConsultationResponse(claimed));
     }
   );
 
@@ -446,7 +461,8 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       try {
         const result = await joinConsultation(id, request.user!.userId);
-        return reply.send(result);
+        if (!result) return reply.status(404).send({ message: 'Consultation not found' });
+        return reply.send(toSafeConsultationResponse(result));
       } catch (err) {
         if (isPrismaConnectionError(err)) throw err;
         const message = (err as Error).message;
@@ -481,7 +497,7 @@ export default async function consultationsRoutes(fastify: FastifyInstance) {
           return reply.status(403).send({ message: 'Only assigned doctor can close' });
         }
         const updated = await closeConsultation(id, request.user!.userId);
-        return reply.send(updated);
+        return reply.send(toSafeConsultationResponse(updated));
       } catch (err) {
         if (isPrismaConnectionError(err)) throw err;
         const message = (err as Error).message;

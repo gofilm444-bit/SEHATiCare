@@ -1,8 +1,8 @@
 import 'fastify';
 import '@fastify/jwt';
 
-type AppUserRole = 'PASIEN' | 'DOKTER' | 'ADMIN' | 'AI';
-type JwtUserPayload = { userId: string; role: AppUserRole };
+type AppUserRole = 'PASIEN' | 'DOKTER' | 'ADMIN' | 'AI' | 'COUNSELOR' | 'COMPLAINT_OFFICER' | 'SUPERVISOR';
+type JwtUserPayload = { userId: string; role: AppUserRole; sessionVersion: number; sessionId?: string };
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {

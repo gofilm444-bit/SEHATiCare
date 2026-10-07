@@ -6,11 +6,9 @@ export function ensureConsultationAccess(
   consultation: {
     patient_id: string;
     assignedDoctorId: string | null;
-    consultation_participants?: { user_id: string }[] | null;
   },
   user: AuthUser
 ) {
-  if (user.role === 'ADMIN') return;
   if (user.role === 'PASIEN') {
     if (consultation.patient_id !== user.userId) {
       throw new Error('Forbidden');
@@ -18,9 +16,7 @@ export function ensureConsultationAccess(
     return;
   }
   if (user.role === 'DOKTER') {
-    const isAssigned = consultation.assignedDoctorId === user.userId;
-    const isParticipant = consultation.consultation_participants?.some((p) => p.user_id === user.userId);
-    if (!isAssigned && !isParticipant) {
+    if (consultation.assignedDoctorId !== user.userId) {
       throw new Error('Forbidden');
     }
     return;

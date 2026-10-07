@@ -4,7 +4,9 @@ export const roleHome: Record<UserRole, string> = {
   PASIEN: '/patient',
   DOKTER: '/doctor',
   ADMIN: '/admin',
-  PENDAMPING: '/pendamping'
+  COUNSELOR: '/counselor',
+  COMPLAINT_OFFICER: '/complaint-officer',
+  SUPERVISOR: '/complaint-officer'
 };
 
 export function getDashboardPath(role?: UserRole | null) {
@@ -17,7 +19,9 @@ export function formatRole(role: UserRole) {
     PASIEN: 'Pasien',
     DOKTER: 'Dokter',
     ADMIN: 'Admin',
-    PENDAMPING: 'Pendamping'
+    COUNSELOR: 'Konselor',
+    COMPLAINT_OFFICER: 'Petugas Pengaduan',
+    SUPERVISOR: 'Supervisor'
   };
   return labels[role];
 }

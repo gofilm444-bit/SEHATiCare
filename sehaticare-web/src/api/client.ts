@@ -1,6 +1,19 @@
 import { AuthResponse } from '../types/auth';
 
-export const API_BASE_URL = '/api';
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+
+export const API_BASE_URL = configuredApiBaseUrl || '/api';
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly responseBody: unknown
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 function joinUrl(base: string, path: string) {
   if (base.endsWith('/')) base = base.slice(0, -1);
@@ -74,13 +87,12 @@ const doFetch = async <T>(
 
   let response: Response;
   try {
-    response = await fetch(url, { ...init, headers, signal });
+    response = await fetch(url, { ...init, credentials: 'include', headers, signal });
   } catch (err) {
     if (isAbortError(err)) {
       throw err;
     }
-    console.debug('[apiFetch] network error', { url, method: init.method ?? 'GET', err });
-    throw new Error(`Failed to fetch (${url})`);
+    throw new Error('Tidak dapat terhubung ke layanan. Silakan coba lagi.');
   }
 
   const rawText = await response.text();
@@ -94,7 +106,6 @@ const doFetch = async <T>(
   }
 
   if (!response.ok) {
-    console.debug('[apiFetch] bad response', { url, status: response.status, statusText: response.statusText });
     const messageFromData =
       (data &&
       typeof data === 'object' &&
@@ -110,7 +121,7 @@ const doFetch = async <T>(
       options.onUnauthorized?.();
     }
 
-    throw new Error(`${messageFromData} (HTTP ${response.status})`);
+    throw new ApiError(messageFromData, response.status, data);
   }
 
   return data as T;
@@ -127,7 +138,7 @@ export async function apiFetch<T>(
   const shouldLock = method === 'GET' || method === 'HEAD';
 
   if (!shouldLock) {
-    return doFetch<T>(url, init, options, init.signal);
+    return doFetch<T>(url, init, options, init.signal ?? undefined);
   }
 
   let entry = inflightRequests.get(key);
@@ -162,5 +173,67 @@ export function loginRequest(email: string, password: string) {
   return apiFetch<AuthResponse>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password })
+  });
+}
+
+export function anonymousLoginRequest(login_id: string, password: string) {
+  return apiFetch<AuthResponse>('/auth/anonymous/login', { method: 'POST', body: JSON.stringify({ login_id, password }) });
+}
+
+export type AnonymousCredentials = { public_id: string; login_id: string; alias: string; recovery_code: string };
+export function registerAnonymousRequest(body: Record<string, unknown>) {
+  return apiFetch<AnonymousCredentials>('/auth/anonymous/register', { method: 'POST', body: JSON.stringify(body) });
+}
+export function recoverAnonymousRequest(body: Record<string, unknown>) {
+  return apiFetch<{ recovery_code: string }>('/auth/anonymous/recover', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export type AccountProfile = { public_id: string; login_id: string | null; display_alias: string; account_mode: 'LEGACY' | 'ANONYMOUS'; avatar_key: string | null; preferred_language: string; timezone: string; accessibility_preferences?: Record<string, boolean> | null; notification_preferences?: Record<string, boolean> | null; recovery_enabled: boolean; role: string; created_at: string };
+export function getAccountProfileRequest(token: string) { return apiFetch<AccountProfile>('/account/profile', {}, { token }); }
+export function updateAccountProfileRequest(token: string, body: Record<string, unknown>) { return apiFetch<AccountProfile>('/account/profile', { method: 'PUT', body: JSON.stringify(body) }, { token }); }
+export function changePasswordRequest(token: string, body: Record<string, unknown>) { return apiFetch<void>('/account/password', { method: 'POST', body: JSON.stringify(body) }, { token }); }
+export function regenerateRecoveryRequest(token: string, password: string) { return apiFetch<{ recovery_code: string }>('/account/recovery-code/regenerate', { method: 'POST', body: JSON.stringify({ password }) }, { token }); }
+export function logoutAllRequest(token: string) { return apiFetch<void>('/account/logout-all', { method: 'POST' }, { token }); }
+export function convertAnonymousRequest(token: string, body: Record<string, unknown>) { return apiFetch<AnonymousCredentials>('/account/convert-anonymous', { method: 'POST', body: JSON.stringify(body) }, { token }); }
+
+export const MANAGED_USER_ROLES = ['PASIEN', 'DOKTER', 'ADMIN', 'COUNSELOR', 'COMPLAINT_OFFICER', 'SUPERVISOR'] as const;
+export type ManagedUserRole = typeof MANAGED_USER_ROLES[number];
+export type AdminUser = { public_id: string; display_alias: string; full_name?: string; email?: string | null; account_mode: 'LEGACY' | 'ANONYMOUS'; role: ManagedUserRole; is_superadmin: boolean; is_active: boolean; is_self: boolean; can_manage: boolean; created_at: string; updated_at: string };
+export type AdminUserList = { items: AdminUser[]; total: number; page: number; pageSize: number; is_superadmin: boolean };
+export function adminUsersRequest(token: string, page: number, search: string, role = '', status = '') { return apiFetch<AdminUserList>(`/admin/users?page=${page}&pageSize=20&search=${encodeURIComponent(search)}&role=${encodeURIComponent(role)}&status=${encodeURIComponent(status)}`, {}, { token }); }
+export function adminUserDetailRequest(token: string, publicId: string) { return apiFetch<AdminUser>(`/admin/users/${encodeURIComponent(publicId)}`, {}, { token }); }
+export function adminCreateUserRequest(token: string, body: {email:string;full_name:string;display_alias?:string;role:ManagedUserRole;password:string;password_confirmation:string;is_active?:boolean}) { return apiFetch<AdminUser>('/admin/users', { method: 'POST', body: JSON.stringify(body) }, { token }); }
+export function adminUpdateUserRequest(token: string, publicId: string, body: {full_name?:string;display_alias?:string|null;role?:ManagedUserRole}) { return apiFetch<AdminUser>(`/admin/users/${encodeURIComponent(publicId)}`, { method: 'PATCH', body: JSON.stringify(body) }, { token }); }
+export function adminUserStatusRequest(token: string, publicId: string, is_active: boolean) { return apiFetch<{ public_id: string; is_active: boolean }>(`/admin/users/${encodeURIComponent(publicId)}/status`, { method: 'PUT', body: JSON.stringify({ is_active }) }, { token }); }
+export function adminResetUserPasswordRequest(token: string, publicId: string, new_password: string, password_confirmation: string) { return apiFetch<{success:boolean}>(`/admin/users/${encodeURIComponent(publicId)}/reset-password`, { method: 'POST', body: JSON.stringify({ new_password, password_confirmation }) }, { token }); }
+export function adminRevokeUserSessionsRequest(token: string, publicId: string) { return apiFetch<{success:boolean}>(`/admin/users/${encodeURIComponent(publicId)}/revoke-sessions`, { method: 'POST' }, { token }); }
+
+function readCookie(name: string) {
+  const prefix = `${encodeURIComponent(name)}=`;
+  const value = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  return value ? decodeURIComponent(value.slice(prefix.length)) : null;
+}
+
+function csrfHeaders() {
+  const token = readCookie('sehaticare_csrf');
+  const headers = new Headers();
+  if (token) headers.set('X-CSRF-Token', token);
+  return headers;
+}
+
+export function refreshSessionRequest() {
+  return apiFetch<AuthResponse>('/auth/refresh', {
+    method: 'POST',
+    headers: csrfHeaders()
+  });
+}
+
+export function logoutRequest() {
+  return apiFetch<void>('/auth/logout', {
+    method: 'POST',
+    headers: csrfHeaders()
   });
 }

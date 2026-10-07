@@ -7,7 +7,12 @@ import basicSsl from '@vitejs/plugin-basic-ssl';
 export default defineConfig(({ mode }) => {
   const rootDir = path.dirname(fileURLToPath(import.meta.url));
   const env = loadEnv(mode, rootDir, '');
-  const apiTarget = env.VITE_API_TARGET || 'http://localhost:3000';
+  const apiTarget = env.VITE_API_TARGET || 'http://localhost:3100';
+  const devHost = env.VITE_DEV_HOST || '127.0.0.1';
+  const allowedHosts = (env.VITE_ALLOWED_HOSTS || 'localhost,127.0.0.1')
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean);
 
   return {
     plugins: [
@@ -23,12 +28,12 @@ export default defineConfig(({ mode }) => {
 
     server: {
       port: 5173,
+      strictPort: true,
 
-      // listen semua interface (LAN + vEthernet + localhost)
-      host: '0.0.0.0',
+      // Secure default: loopback only. LAN access must be an explicit local override.
+      host: devHost,
 
-      // allow akses via IP
-      allowedHosts: true,
+      allowedHosts,
 
       // HTTPS wajib untuk MediaRecorder
       https: true,

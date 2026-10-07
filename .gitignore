@@ -1,0 +1,21 @@
+# Machine-specific Vite development overrides (may contain LAN addresses).
+sehaticare-web/.env.local
+sehaticare-web/.env.*.local
+
+# Local environment and generated artifacts
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules/
+**/dist/
+**/build/
+**/coverage/
+**/.vite/
+**/cache/
+**/temp/
+**/*.log
+**/.DS_Store
+**/._*

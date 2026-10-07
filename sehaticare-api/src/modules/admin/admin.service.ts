@@ -46,7 +46,20 @@ export async function upsertDoctorProfile(adminId: string, payload: { user_id: s
 export async function listAuditLogs(query: { page?: number | string; pageSize?: number | string }) {
   const { skip, take, page, pageSize } = buildPagination(query);
   const [items, total] = await Promise.all([
-    prisma.audit_logs.findMany({ skip, take, orderBy: { created_at: 'desc' } }),
+    prisma.audit_logs.findMany({
+      skip,
+      take,
+      orderBy: { created_at: 'desc' },
+      select: {
+        id: true,
+        actor_user_id: true,
+        action: true,
+        entity_type: true,
+        entity_id: true,
+        meta: true,
+        created_at: true
+      }
+    }),
     prisma.audit_logs.count()
   ]);
   return { items, total, page, pageSize };
@@ -68,7 +81,44 @@ export async function listAuditEvents(query: {
       action: query.action
     },
     orderBy: { created_at: 'desc' },
-    take: limit
+    take: limit,
+    select: {
+      id: true,
+      created_at: true,
+      actor_user_id: true,
+      actor_role: true,
+      action: true,
+      consultation_id: true,
+      meta_json: true
+    }
+  });
+}
+
+export async function listUsers(query: { page?: number | string; pageSize?: number | string; search?: string }) {
+  const { skip, take, page, pageSize } = buildPagination(query);
+  const search = typeof query.search === 'string' ? query.search.trim().slice(0, 64) : '';
+  const where = search ? { OR: [
+    { public_id: { contains: search, mode: 'insensitive' as const } },
+    { display_alias: { contains: search, mode: 'insensitive' as const } }
+  ] } : {};
+  const [items, total] = await Promise.all([
+    prisma.users.findMany({ where, skip, take, orderBy: { created_at: 'desc' }, select: {
+      public_id: true, display_alias: true, full_name: true, account_mode: true, role: true, is_active: true, created_at: true
+    } }),
+    prisma.users.count({ where })
+  ]);
+  return { items: items.map(({ full_name, ...item }) => ({ ...item, display_alias: item.display_alias ?? (item.account_mode === 'LEGACY' ? full_name : 'Pengguna') })), total, page, pageSize };
+}
+
+export async function setUserStatus(adminId: string, publicId: string, isActive: boolean) {
+  const target = await prisma.users.findUnique({ where: { public_id: publicId }, select: { id: true, public_id: true, is_active: true } });
+  if (!target) return null;
+  if (target.id === adminId && !isActive) throw new Error('Admin cannot deactivate own account');
+  return prisma.$transaction(async (tx) => {
+    const user = await tx.users.update({ where: { id: target.id }, data: { is_active: isActive, session_version: isActive ? undefined : { increment: 1 }, updated_at: new Date() }, select: { public_id: true, is_active: true } });
+    if (!isActive) await tx.refresh_tokens.updateMany({ where: { user_id: target.id, revoked_at: null }, data: { revoked_at: new Date() } });
+    await recordAuditLog(tx, { actorUserId: adminId, action: isActive ? 'ACCOUNT_ACTIVATED' : 'ACCOUNT_DEACTIVATED', entityType: 'user', entityId: target.id, meta: { public_id: target.public_id } });
+    return user;
   });
 }
 

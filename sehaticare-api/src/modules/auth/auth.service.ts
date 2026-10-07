@@ -4,11 +4,44 @@ import { prisma } from '../../db/prisma';
 import { env } from '../../config/env';
 import { generateOtp, hashToken, hashWithSalt, verifyHash } from '../../utils/crypto';
 import bcrypt from 'bcryptjs';
+import type { user_role } from '@prisma/client';
 
 const OTP_WINDOW_MS = 5 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 
 type Contact = { phone_e164?: string; email?: string };
+
+const sessionUserSelect = {
+  id: true,
+  role: true,
+  is_superadmin: true,
+  email: true,
+  full_name: true,
+  is_active: true,
+  public_id: true,
+  display_alias: true,
+  account_mode: true,
+  session_version: true
+} as const;
+
+async function issueSessionTokens(
+  app: FastifyInstance,
+  user: { id: string; role: user_role; session_version: number }
+) {
+  const payload = { userId: user.id, role: user.role, sessionVersion: user.session_version };
+  const accessToken = app.auth.signAccessToken(payload);
+  const refreshToken = app.auth.signRefreshToken(payload);
+  const refreshExpiry = new Date(Date.now() + env.JWT_REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000);
+  await prisma.refresh_tokens.create({
+    data: {
+      id: randomUUID(),
+      user_id: user.id,
+      token_hash: hashToken(refreshToken),
+      expires_at: refreshExpiry
+    }
+  });
+  return { accessToken, refreshToken };
+}
 
 export async function requestOtp(app: FastifyInstance, contact: Contact, meta?: { ip?: string; userAgent?: string }) {
   const otp = generateOtp();
@@ -32,7 +65,7 @@ export async function requestOtp(app: FastifyInstance, contact: Contact, meta?: 
   return {
     expiresAt,
     // Provide OTP only for local development to avoid leaking in production.
-    ...(process.env.NODE_ENV !== 'production' ? { dev_otp: otp } : {})
+    ...(env.NODE_ENV !== 'production' ? { dev_otp: otp } : {})
   };
 }
 
@@ -96,19 +129,8 @@ export async function verifyOtp(app: FastifyInstance, contact: Contact, otp: str
     });
   }
 
-  const payload = { userId: user.id, role: user.role };
-  const accessToken = app.auth.signAccessToken(payload);
-  const refreshToken = app.auth.signRefreshToken(payload);
-
-  const refreshExpiry = new Date(Date.now() + env.JWT_REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000);
-  await prisma.refresh_tokens.create({
-    data: {
-      id: randomUUID(),
-      user_id: user.id,
-      token_hash: hashToken(refreshToken),
-      expires_at: refreshExpiry
-    }
-  });
+  if (!user.is_active || user.account_mode !== 'LEGACY') throw new Error('Invalid credentials');
+  const { accessToken, refreshToken } = await issueSessionTokens(app, user);
 
   return { accessToken, refreshToken, user };
 }
@@ -122,34 +144,94 @@ export async function getCurrentUser(userId: string) {
 
 export async function loginWithPassword(app: FastifyInstance, email: string, password: string) {
   const user = await prisma.users.findUnique({ where: { email } });
-  if (!user || !user.password_hash) {
-    throw new Error('Invalid credentials');
-  }
-  const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) {
-    throw new Error('Invalid credentials');
-  }
-  if (!user.is_active) {
-    throw new Error('User inactive');
-  }
-
-  const payload = { userId: user.id, role: user.role };
-  const accessToken = app.auth.signAccessToken(payload);
-  const refreshToken = app.auth.signRefreshToken(payload);
-
-  const refreshExpiry = new Date(Date.now() + env.JWT_REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000);
-  await prisma.refresh_tokens.create({
-    data: {
-      id: randomUUID(),
-      user_id: user.id,
-      token_hash: hashToken(refreshToken),
-      expires_at: refreshExpiry
-    }
-  });
+  const hash = user?.password_hash ?? '$2b$12$C6UzMDM.H6dfI/f/IKcEe.5YxZkYQpJwZ0fE5xQWQ9tTQO0oYdI0C';
+  const valid = await bcrypt.compare(password, hash);
+  if (!user || user.account_mode !== 'LEGACY' || !user.password_hash || !valid || !user.is_active) throw new Error('Invalid credentials');
+  const { accessToken, refreshToken } = await issueSessionTokens(app, user);
 
   return {
     accessToken,
     refreshToken,
     user
   };
+}
+
+export async function loginAnonymous(app: FastifyInstance, loginId: string, password: string) {
+  const { normalizeLoginId } = await import('../account/identity');
+  const user = await prisma.users.findUnique({ where: { login_id: normalizeLoginId(loginId) } });
+  const hash = user?.password_hash ?? '$2b$12$C6UzMDM.H6dfI/f/IKcEe.5YxZkYQpJwZ0fE5xQWQ9tTQO0oYdI0C';
+  const valid = await bcrypt.compare(password, hash);
+  if (!user || user.account_mode !== 'ANONYMOUS' || !user.password_hash || !valid || !user.is_active) throw new Error('Invalid credentials');
+  const { accessToken, refreshToken } = await issueSessionTokens(app, user);
+  return { accessToken, refreshToken, user };
+}
+
+export async function rotateRefreshToken(app: FastifyInstance, refreshToken: string) {
+  let payload: { userId: string; role: user_role; sessionVersion: number };
+  try {
+    payload = app.auth.verifyRefreshToken(refreshToken);
+  } catch {
+    throw new Error('Invalid session');
+  }
+
+  const tokenHash = hashToken(refreshToken);
+  const stored = await prisma.refresh_tokens.findFirst({
+    where: {
+      user_id: payload.userId,
+      token_hash: tokenHash,
+      revoked_at: null,
+      expires_at: { gt: new Date() }
+    },
+    select: { id: true }
+  });
+  if (!stored) throw new Error('Invalid session');
+
+  const user = await prisma.users.findUnique({
+    where: { id: payload.userId },
+    select: sessionUserSelect
+  });
+  if (!user?.is_active) throw new Error('Invalid session');
+
+  return prisma.$transaction(async (tx) => {
+    const revoked = await tx.refresh_tokens.updateMany({
+      where: { id: stored.id, revoked_at: null },
+      data: { revoked_at: new Date() }
+    });
+    if (revoked.count !== 1) throw new Error('Invalid session');
+
+    if (payload.sessionVersion !== user.session_version) throw new Error('Invalid session');
+    const nextPayload = { userId: user.id, role: user.role, sessionVersion: user.session_version };
+    const accessToken = app.auth.signAccessToken(nextPayload);
+    const nextRefreshToken = app.auth.signRefreshToken(nextPayload);
+    await tx.refresh_tokens.create({
+      data: {
+        id: randomUUID(),
+        user_id: user.id,
+        token_hash: hashToken(nextRefreshToken),
+        expires_at: new Date(Date.now() + env.JWT_REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000)
+      }
+    });
+
+    return {
+      accessToken,
+      refreshToken: nextRefreshToken,
+      user: {
+        id: user.public_id,
+        role: user.role,
+        is_superadmin: user.is_superadmin,
+        email: user.email,
+        full_name: user.display_alias ?? user.full_name,
+        public_id: user.public_id,
+        display_alias: user.display_alias,
+        account_mode: user.account_mode
+      }
+    };
+  });
+}
+
+export async function revokeRefreshToken(refreshToken: string) {
+  await prisma.refresh_tokens.updateMany({
+    where: { token_hash: hashToken(refreshToken), revoked_at: null },
+    data: { revoked_at: new Date() }
+  });
 }

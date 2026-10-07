@@ -1,77 +1,12 @@
 import { Link } from 'react-router-dom';
-import { Badge } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { useAuth } from '../context/AuthContext';
+import { buttonClassName } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Icon } from '../components/ui/icons';
+import { ActionCard, HeroCard, PageHeader, StatusBadge } from '../components/ui/patterns';
 
-const adminMenu = [
-  {
-    title: 'Konten Portal Depan',
-    description: 'Kelola landing, banner, dan informasi publik.',
-    path: '/admin/portal'
-  },
-  {
-    title: 'Konten Edukasi (Full)',
-    description: 'Kelola artikel edukasi dan kategori.',
-    path: '/admin/education'
-  },
-  {
-    title: 'Manajemen User',
-    description: 'Kelola akun pasien, dokter, dan pendamping.',
-    path: '/admin/users'
-  },
-  {
-    title: 'Audit & Log Aktivitas',
-    description: 'Pantau aktivitas sistem dan perubahan penting.',
-    path: '/admin/audit'
-  },
-  {
-    title: 'Monitoring Sistem',
-    description: 'Kesehatan layanan dan performa harian.',
-    path: '/admin/monitoring'
-  }
-];
-
-export function AdminDashboard() {
-  const { logout } = useAuth();
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-500">Kendali sistem</p>
-          <h1 className="text-2xl font-semibold text-slate-900">Admin Dashboard</h1>
-        </div>
-        <Badge>ADMIN</Badge>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {adminMenu.map((item) => (
-          <Link key={item.path} to={item.path} className="block">
-            <Card className="h-full transition hover:border-brand/40 hover:shadow-md">
-              <CardHeader>
-                <CardTitle>{item.title}</CardTitle>
-                <CardDescription>{item.description}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <span className="text-xs font-medium text-brand">Buka menu</span>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-
-        <Card className="h-full border-red-200 bg-red-50">
-          <CardHeader>
-            <CardTitle>Logout</CardTitle>
-            <CardDescription>Keluar dari akun admin.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="destructive" onClick={() => logout(true)}>
-              Keluar
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
+export function AdminDashboard(){return <div className="page-shell"><PageHeader eyebrow="Ruang kerja admin" title="Prioritas pengelolaan hari ini" description="Tinjau akses, konten, fasilitas, dan kesehatan sistem tanpa membuka isi konsultasi pengguna."/>
+ <HeroCard tone="support" icon="shield" eyebrow="Privasi berdasarkan peran" title="Kelola sistem, bukan isi percakapan" description="Akun admin tidak otomatis memiliki akses untuk membaca percakapan konsultasi. Gunakan audit dan monitoring untuk menjaga layanan." action={<Link to="/admin/monitoring" className={buttonClassName()}>Buka monitoring</Link>} secondary={<Link to="/admin/audit" className={buttonClassName({variant:'outline'})}>Lihat audit</Link>}/>
+ <section aria-labelledby="priority-title"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Perlu ditindaklanjuti</p><h2 id="priority-title" className="mt-1 text-2xl font-bold">Daftar pekerjaan</h2></div><StatusBadge variant="info">Data aman tanpa preview chat</StatusBadge></div><div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4"><Priority icon="users" title="Verifikasi Konselor" description="Periksa role, profil, dan permission sebelum petugas menerima sesi." href="/admin/users" action="Kelola pengguna"/><Priority icon="building" title="Verifikasi Fasilitas" description="Pastikan fasilitas publik aktif, terverifikasi, dan memiliki sumber yang jelas." href="/admin/education" action="Tinjau fasilitas"/><Priority icon="book" title="Tinjau Konten" description="Periksa materi publik sebelum diterbitkan pada portal." href="/admin/portal" action="Tinjau konten"/><Priority icon="activity" title="Kesehatan Sistem" description="Pantau layanan dan tindak lanjuti gangguan operasional." href="/admin/monitoring" action="Buka monitoring"/></div></section>
+ <section aria-labelledby="admin-tools-title"><h2 id="admin-tools-title" className="text-2xl font-bold">Alat pengelolaan</h2><div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"><ActionCard icon="users" title="Manajemen Pengguna" description="Kelola status akun dan kewenangan berdasarkan kebutuhan kerja." href="/admin/users" action="Buka pengguna" tone="calm"/><ActionCard icon="clipboard" title="Konten Portal" description="Kelola landing, sorotan, dan informasi yang tampil untuk publik." href="/admin/portal" action="Buka portal" tone="support"/><ActionCard icon="shield" title="Audit Aktivitas" description="Telusuri perubahan penting tanpa menampilkan isi konsultasi." href="/admin/audit" action="Buka audit" tone="mint"/></div></section>
+ </div>}
+function Priority({icon,title,description,href,action}:{icon:'users'|'building'|'book'|'activity';title:string;description:string;href:string;action:string}){return <Card className="h-full"><CardHeader className="border-0 pb-0"><span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 text-brand"><Icon name={icon}/></span><CardTitle className="mt-3">{title}</CardTitle></CardHeader><CardContent className="flex h-[calc(100%-7rem)] flex-col"><p className="flex-1 text-sm leading-6 text-slate-600">{description}</p><Link to={href} className={buttonClassName({variant:'outline',className:'mt-4 w-full'})}>{action}</Link></CardContent></Card>}

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../../db/prisma';
 import { recordAuditLog } from '../../utils/audit';
 import { audit } from '../../utils/auditEvents';
+import { consultationPublicSelect } from './consultations.presenter';
 
 const ACTIVE_STATUSES: consultation_status[] = ['MENUNGGU_DOKTER', 'AI_AKTIF', 'DOKTER_AKTIF'];
 
@@ -15,7 +16,8 @@ export async function getLatestActiveForPatient(patientId: string) {
     orderBy: [
       { updated_at: 'desc' },
       { opened_at: 'desc' }
-    ]
+    ],
+    select: consultationPublicSelect
   });
 }
 
@@ -74,14 +76,13 @@ export async function listConsultationsForUser(userId: string, role: user_role) 
     role === 'PASIEN'
       ? { patient_id: userId }
       : role === 'DOKTER'
-        ? {
-            OR: [{ assignedDoctorId: userId }, { consultation_participants: { some: { user_id: userId } } }]
-          }
-        : {};
+        ? { assignedDoctorId: userId }
+        : { id: '__forbidden_role__' };
 
   return prisma.consultations.findMany({
     where,
-    orderBy: { opened_at: 'desc' }
+    orderBy: { opened_at: 'desc' },
+    select: consultationPublicSelect
   });
 }
 
@@ -136,7 +137,11 @@ export function listDoctorActive(doctorId: string) {
 export function listConsultationQueue() {
   return prisma.consultations.findMany({
     where: { assignedDoctorId: null, status: { in: ['MENUNGGU_DOKTER', 'AI_AKTIF'] } },
-    orderBy: { created_at: 'asc' }
+    orderBy: { created_at: 'asc' },
+    select: {
+      ...consultationPublicSelect,
+      patient: { select: { full_name: true } }
+    }
   });
 }
 
@@ -146,7 +151,6 @@ export async function listDoctorQueue() {
     orderBy: [{ priority: 'desc' }, { opened_at: 'asc' }],
     select: {
       id: true,
-      patient_id: true,
       status: true,
       initial_complaint: true,
       opened_at: true,
@@ -206,7 +210,14 @@ export function listMessagesForConsultation(consultationId: string, after?: Date
       consultation_id: consultationId,
       ...(after ? { created_at: { gt: after } } : {})
     },
-    orderBy: { created_at: 'asc' }
+    orderBy: { created_at: 'asc' },
+    select: {
+      id: true,
+      sender_role: true,
+      content: true,
+      created_at: true,
+      voice_note_id: true
+    }
   });
 }
 

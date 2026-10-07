@@ -11,6 +11,7 @@
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "db:deploy": "ts-node prisma/deploy.ts",
     "prisma:backfill:anonymous": "ts-node prisma/backfill-anonymous-identities.ts",
     "admin:promote-superadmin": "ts-node prisma/promote-superadmin.ts",
     "seed": "ts-node prisma/seed.ts",

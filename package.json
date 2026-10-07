@@ -11,6 +11,7 @@
     "seed:content": "npm --prefix sehaticare-api run seed:content",
     "prisma:generate": "npm --prefix sehaticare-api run prisma:generate",
     "prisma:migrate": "npm --prefix sehaticare-api run prisma:migrate",
+    "db:deploy": "npm --prefix sehaticare-api run db:deploy",
     "lint": "npm --prefix sehaticare-api run lint",
     "test": "npm --prefix sehaticare-api test"
   },

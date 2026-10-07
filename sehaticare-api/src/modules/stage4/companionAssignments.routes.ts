@@ -16,6 +16,11 @@ import {
   reassignCompanion,
   resolveUser
 } from './companionAssignments.service';
+import {
+  findActiveCompanionConversation,
+  routeCompanionConversation,
+  CompanionRoutingError
+} from './companionRouting.service';
 
 function adminOnly(req: FastifyRequest, reply: FastifyReply): boolean {
   if (req.user?.role !== 'ADMIN') {
@@ -399,5 +404,46 @@ export default async function companionAssignmentsRoutes(app: FastifyInstance) {
       },
       started_at: assignment.started_at.toISOString()
     };
+  });
+
+  // ==========================================
+  // PATIENT COMPANION CONVERSATION ROUTING
+  // ==========================================
+
+  app.get('/patient/companion/active-conversation', { preHandler: [authGuard] }, async (req, reply) => {
+    if (req.user?.role !== 'PASIEN') {
+      return reply.code(403).send({ message: 'Akses ditolak' });
+    }
+    const conv = await findActiveCompanionConversation(req.user.userId);
+    return {
+      has_active_conversation: Boolean(conv),
+      conversation_public_id: conv?.public_id ?? null,
+      status: conv?.status ?? null
+    };
+  });
+
+  app.post('/patient/companion/start-conversation', { preHandler: [authGuard] }, async (req, reply) => {
+    if (req.user?.role !== 'PASIEN') {
+      return reply.code(403).send({ message: 'Akses ditolak' });
+    }
+    const body = (req.body as any) || {};
+    try {
+      const result = await routeCompanionConversation({
+        patientUserId: req.user.userId,
+        initialMessage: (body.initial_message as string)?.trim() || 'Halo, saya ingin berkonsultasi dengan pendamping.',
+        subject: 'Pendampingan Berkelanjutan',
+        submissionKey: body.submission_key,
+        allowReuseExisting: true
+      });
+      return reply.code(result.isReused ? 200 : 201).send({
+        conversation_public_id: result.conversation.public_id,
+        is_reused: result.isReused,
+        routed_to_companion: result.routedToCompanion,
+        status: result.conversation.status
+      });
+    } catch (err: any) {
+      const status = err.statusCode || 400;
+      return reply.code(status).send({ message: err.message || 'Gagal memulai percakapan pendamping' });
+    }
   });
 }

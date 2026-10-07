@@ -61,13 +61,26 @@ export async function isActiveCompanionForPatient(
 }
 
 export async function getActiveCompanionAssignment(
-  companionUserId: string,
-  patientUserId: string,
-  tx: PrismaTx = prisma
+  param1: string,
+  param2?: string | PrismaTx,
+  txOrUndefined?: PrismaTx
 ) {
+  let companionUserId: string | undefined;
+  let patientUserId: string;
+  let tx: PrismaTx = prisma;
+
+  if (typeof param2 === 'string') {
+    companionUserId = param1;
+    patientUserId = param2;
+    if (txOrUndefined) tx = txOrUndefined;
+  } else {
+    patientUserId = param1;
+    if (param2 && typeof param2 === 'object') tx = param2 as PrismaTx;
+  }
+
   return tx.patient_companion_assignments.findFirst({
     where: {
-      companion_user_id: companionUserId,
+      ...(companionUserId ? { companion_user_id: companionUserId } : {}),
       patient_user_id: patientUserId,
       status: 'ACTIVE'
     },

@@ -570,6 +570,9 @@ model users {
   hiv_monitoring_entries_as_patient                       hiv_monitoring_entries[]        @relation("hiv_monitoring_patient")
   hiv_monitoring_entries_recorded                         hiv_monitoring_entries[]        @relation("hiv_monitoring_recorder")
   hiv_monitoring_entries_archived                         hiv_monitoring_entries[]        @relation("hiv_monitoring_archiver")
+  art_care_plans_as_patient                               art_care_plans[]                @relation("art_care_plan_patient")
+  art_care_plans_prescribed                               art_care_plans[]                @relation("art_care_plan_prescriber")
+  art_adherence_support_consent                           art_adherence_support_consents?
 }
 
 model professional_outreach_cases {
@@ -859,11 +862,14 @@ model medication_reminders {
   deleted_at           DateTime?
   created_at           DateTime                    @default(now())
   updated_at           DateTime
+  art_plan_item_id     String?                     @db.Uuid
   owner                users                       @relation(fields: [user_id], references: [id])
+  art_plan_item        art_care_plan_items?        @relation(fields: [art_plan_item_id], references: [id])
   times                medication_reminder_times[]
   occurrences          medication_occurrences[]
 
   @@index([user_id, is_active, deleted_at])
+  @@index([art_plan_item_id])
 }
 
 model medication_reminder_times {
@@ -1580,6 +1586,7 @@ model hiv_care_enrollments {
   created_by         users                      @relation("hiv_enrollment_creator", fields: [created_by_user_id], references: [id])
   updated_by         users?                     @relation("hiv_enrollment_updater", fields: [updated_by_user_id], references: [id])
   monitoring_entries hiv_monitoring_entries[]
+  art_care_plans     art_care_plans[]
 
   @@index([patient_user_id, status])
   @@index([facility_id])
@@ -1637,5 +1644,69 @@ enum viral_load_interpretation {
   BELOW_QUANTIFICATION
   UNKNOWN
 }
+
+model art_care_plans {
+  id                      String               @id @db.Uuid
+  public_id               String               @unique @default(dbgenerated("'art_' || replace(gen_random_uuid()::text, '-', '')"))
+  patient_user_id         String               @db.Uuid
+  enrollment_id           String               @db.Uuid
+  prescribed_by_doctor_id String               @db.Uuid
+  status                  art_care_plan_status @default(ACTIVE)
+  started_at              DateTime             @default(now())
+  ended_at                DateTime?
+  clinical_notes          String?
+  change_reason           String?
+  created_at              DateTime             @default(now())
+  updated_at              DateTime             @default(now())
+
+  patient                 users                @relation("art_care_plan_patient", fields: [patient_user_id], references: [id])
+  prescribed_by           users                @relation("art_care_plan_prescriber", fields: [prescribed_by_doctor_id], references: [id])
+  enrollment              hiv_care_enrollments @relation(fields: [enrollment_id], references: [id])
+  items                   art_care_plan_items[]
+
+  @@index([patient_user_id, status])
+  @@index([enrollment_id, status])
+  @@index([prescribed_by_doctor_id])
+}
+
+model art_care_plan_items {
+  id                 String               @id @db.Uuid
+  plan_id            String               @db.Uuid
+  medication_name    String
+  strength           String?
+  dose_instructions  String?
+  frequency_per_day  Int                  @default(1)
+  timing_description String?
+  is_active          Boolean              @default(true)
+  created_at         DateTime             @default(now())
+  updated_at         DateTime             @default(now())
+
+  plan               art_care_plans       @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+  reminders          medication_reminders[]
+
+  @@index([plan_id])
+}
+
+model art_adherence_support_consents {
+  id                 String    @id @db.Uuid
+  patient_user_id    String    @unique @db.Uuid
+  is_consent_enabled Boolean   @default(false)
+  consented_at       DateTime?
+  revoked_at         DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @default(now())
+
+  patient            users     @relation(fields: [patient_user_id], references: [id])
+
+  @@index([patient_user_id, is_consent_enabled])
+}
+
+enum art_care_plan_status {
+  ACTIVE
+  MODIFIED
+  DISCONTINUED
+  COMPLETED
+}
+
 
 

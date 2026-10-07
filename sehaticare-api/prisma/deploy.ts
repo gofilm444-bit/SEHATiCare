@@ -25,7 +25,8 @@ export const DEPENDENCY_ORDERED_MIGRATIONS: string[] = [
   '20260815100000_portal_contents',
   '20260816090000_patient_companion_assignments',
   '20260817090000_companion_aware_routing',
-  '20260818090000_hiv_care_monitoring'
+  '20260818090000_hiv_care_monitoring',
+  '20260819090000_art_care_plan_adherence'
 ];
 
 interface DatabaseState {

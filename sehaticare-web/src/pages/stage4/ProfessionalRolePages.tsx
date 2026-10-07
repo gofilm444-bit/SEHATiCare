@@ -19,6 +19,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { Input } from '../../components/ui/input';
 import { EmptyState, PageHeader, Skeleton, StatusBadge } from '../../components/ui/patterns';
 import { useAuth } from '../../context/AuthContext';
+import {
+  getCompanionAdherenceSupport,
+  CompanionAdherenceSupportResponse,
+} from '../../api/artCare';
 
 type Assignment = {
   public_id: string;
@@ -96,6 +100,30 @@ export function CompanionAssignmentsPage() {
     void load();
   }, [load]);
 
+  const [supportSummaries, setSupportSummaries] = useState<
+    Record<string, { loading: boolean; data?: CompanionAdherenceSupportResponse; error?: string }>
+  >({});
+
+  const handleLoadAdherenceSupport = async (patientPublicId: string) => {
+    if (!token) return;
+    setSupportSummaries((prev) => ({
+      ...prev,
+      [patientPublicId]: { loading: true }
+    }));
+    try {
+      const res = await getCompanionAdherenceSupport(token, patientPublicId, 7);
+      setSupportSummaries((prev) => ({
+        ...prev,
+        [patientPublicId]: { loading: false, data: res }
+      }));
+    } catch (err: any) {
+      setSupportSummaries((prev) => ({
+        ...prev,
+        [patientPublicId]: { loading: false, error: err.message || 'Gagal memuat ringkasan dukungan' }
+      }));
+    }
+  };
+
   return (
     <div className="page-shell space-y-8">
       <PageHeader
@@ -166,6 +194,66 @@ export function CompanionAssignmentsPage() {
                     </p>
                     {item.facility ? (
                       <p className="mt-1">Fasilitas: {item.facility.name}</p>
+                    ) : null}
+                  </div>
+
+                  {/* Privacy-Safe Adherence Support Summary */}
+                  <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-700">Dukungan Kepatuhan:</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs h-7 px-2"
+                        disabled={supportSummaries[item.patient_public_id]?.loading}
+                        onClick={() => void handleLoadAdherenceSupport(item.patient_public_id)}
+                      >
+                        {supportSummaries[item.patient_public_id]?.loading
+                          ? 'Memuat…'
+                          : supportSummaries[item.patient_public_id]?.data
+                          ? 'Perbarui Status'
+                          : 'Cek Ringkasan Kepatuhan'}
+                      </Button>
+                    </div>
+
+                    {supportSummaries[item.patient_public_id]?.data ? (
+                      !supportSummaries[item.patient_public_id].data?.support_consent_enabled ? (
+                        <div className="rounded-lg bg-slate-50 border border-slate-200 p-2.5 text-xs text-slate-600">
+                          <p className="font-medium text-slate-700">
+                            Pasien belum mengaktifkan berbagi ringkasan dukungan kepatuhan.
+                          </p>
+                          <p className="text-2xs text-slate-500 mt-0.5">
+                            Privasi klinis terlindungi. Ringkasan angka kepatuhan hanya dapat dilihat jika pasien mengizinkan.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg bg-emerald-50/70 border border-emerald-200 p-2.5 text-xs text-emerald-950 space-y-1">
+                          <div className="flex items-center justify-between font-semibold">
+                            <span>Ringkasan Dukungan (7 Hari)</span>
+                            <span className="text-emerald-700">
+                              {supportSummaries[item.patient_public_id].data?.summary?.adherence_percentage !== null
+                                ? `${supportSummaries[item.patient_public_id].data?.summary?.adherence_percentage}%`
+                                : '—'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1 text-2xs text-slate-700 pt-1">
+                            <div>Jadwal tercatat: <strong>{supportSummaries[item.patient_public_id].data?.summary?.doses_scheduled ?? 0}</strong></div>
+                            <div>Ditandai selesai: <strong className="text-emerald-700">{supportSummaries[item.patient_public_id].data?.summary?.doses_taken ?? 0}</strong></div>
+                            <div className="col-span-2">Belum tercatat/terlewat: <strong className="text-amber-800">{supportSummaries[item.patient_public_id].data?.summary?.doses_missed ?? 0}</strong></div>
+                          </div>
+                          {supportSummaries[item.patient_public_id].data?.summary?.upcoming_control_schedule ? (
+                            <p className="text-2xs text-slate-600 border-t border-emerald-200/60 pt-1 mt-1">
+                              Jadwal kontrol berikutnya: {new Date(supportSummaries[item.patient_public_id].data!.summary!.upcoming_control_schedule!.starts_at).toLocaleDateString('id-ID')}
+                            </p>
+                          ) : null}
+                        </div>
+                      )
+                    ) : null}
+
+                    {supportSummaries[item.patient_public_id]?.error ? (
+                      <p className="text-2xs text-rose-600">
+                        {supportSummaries[item.patient_public_id].error}
+                      </p>
                     ) : null}
                   </div>
                 </CardContent>

@@ -433,6 +433,7 @@ model health_facilities {
   counselor_profiles       counselor_profiles[]
   consultation_preferences consultation_preferences[]
   patient_companion_assignments patient_companion_assignments[]
+  hiv_care_enrollments          hiv_care_enrollments[]
 
   @@index([region_id, facility_type, verification_status, is_active])
   @@index([name])
@@ -563,6 +564,12 @@ model users {
   patient_companion_assignments_as_patient                patient_companion_assignments[] @relation("patient_companion_as_patient")
   patient_companion_assignments_as_companion              patient_companion_assignments[] @relation("patient_companion_as_companion")
   patient_companion_assignments_assigned_by               patient_companion_assignments[] @relation("patient_companion_assigned_by")
+  hiv_care_enrollments_as_patient                         hiv_care_enrollments[]          @relation("hiv_enrollment_patient")
+  hiv_care_enrollments_created                            hiv_care_enrollments[]          @relation("hiv_enrollment_creator")
+  hiv_care_enrollments_updated                            hiv_care_enrollments[]          @relation("hiv_enrollment_updater")
+  hiv_monitoring_entries_as_patient                       hiv_monitoring_entries[]        @relation("hiv_monitoring_patient")
+  hiv_monitoring_entries_recorded                         hiv_monitoring_entries[]        @relation("hiv_monitoring_recorder")
+  hiv_monitoring_entries_archived                         hiv_monitoring_entries[]        @relation("hiv_monitoring_archiver")
 }
 
 model professional_outreach_cases {
@@ -1553,4 +1560,82 @@ enum patient_companion_assignment_status {
   ENDED
   CANCELLED
 }
+
+model hiv_care_enrollments {
+  id                 String                     @id @db.Uuid
+  public_id          String                     @unique @default(dbgenerated("'hce_' || replace(gen_random_uuid()::text, '-', '')"))
+  patient_user_id    String                     @db.Uuid
+  facility_id        String?                    @db.Uuid
+  status             hiv_care_enrollment_status @default(ACTIVE)
+  enrolled_at        DateTime                   @default(now())
+  ended_at           DateTime?
+  end_reason         String?
+  created_by_user_id String                     @db.Uuid
+  updated_by_user_id String?                    @db.Uuid
+  created_at         DateTime                   @default(now())
+  updated_at         DateTime                   @default(now())
+
+  patient            users                      @relation("hiv_enrollment_patient", fields: [patient_user_id], references: [id])
+  facility           health_facilities?         @relation(fields: [facility_id], references: [id])
+  created_by         users                      @relation("hiv_enrollment_creator", fields: [created_by_user_id], references: [id])
+  updated_by         users?                     @relation("hiv_enrollment_updater", fields: [updated_by_user_id], references: [id])
+  monitoring_entries hiv_monitoring_entries[]
+
+  @@index([patient_user_id, status])
+  @@index([facility_id])
+  @@index([status, enrolled_at])
+}
+
+model hiv_monitoring_entries {
+  id                        String                     @id @db.Uuid
+  public_id                 String                     @unique @default(dbgenerated("'mon_' || replace(gen_random_uuid()::text, '-', '')"))
+  enrollment_id             String                     @db.Uuid
+  patient_user_id           String                     @db.Uuid
+  recorded_by_user_id       String                     @db.Uuid
+  recorded_at               DateTime                   @default(now())
+  weight_kg                 Decimal?                   @db.Decimal(5, 2)
+  cd4_count_cells_mm3       Int?
+  viral_load_copies_ml      Int?
+  viral_load_interpretation viral_load_interpretation?
+  tb_screening_result       String?
+  general_condition         String?
+  patient_note              String?
+  clinical_note_private     String?
+  source                    hiv_monitoring_source      @default(DOCTOR)
+  archived_at               DateTime?
+  archived_by_user_id       String?                    @db.Uuid
+  created_at                DateTime                   @default(now())
+  updated_at                DateTime                   @default(now())
+
+  enrollment                hiv_care_enrollments       @relation(fields: [enrollment_id], references: [id])
+  patient                   users                      @relation("hiv_monitoring_patient", fields: [patient_user_id], references: [id])
+  recorded_by               users                      @relation("hiv_monitoring_recorder", fields: [recorded_by_user_id], references: [id])
+  archived_by               users?                     @relation("hiv_monitoring_archiver", fields: [archived_by_user_id], references: [id])
+
+  @@index([patient_user_id, recorded_at(sort: Desc)])
+  @@index([enrollment_id, recorded_at(sort: Desc)])
+  @@index([recorded_by_user_id])
+  @@index([archived_at])
+}
+
+enum hiv_care_enrollment_status {
+  ACTIVE
+  INACTIVE
+  TRANSFERRED
+  ENDED
+}
+
+enum hiv_monitoring_source {
+  DOCTOR
+  PATIENT
+  SYSTEM
+}
+
+enum viral_load_interpretation {
+  DETECTED
+  NOT_DETECTED
+  BELOW_QUANTIFICATION
+  UNKNOWN
+}
+
 

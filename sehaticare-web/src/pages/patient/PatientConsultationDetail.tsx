@@ -71,7 +71,8 @@ const mergeMessagesById = (prev: ChatMessage[], incoming: ChatMessage[]) => {
     if (
       existing.content !== message.content ||
       existing.sender_role !== message.sender_role ||
-      existing.created_at !== message.created_at
+      existing.created_at !== message.created_at ||
+      existing.voice_note_id !== message.voice_note_id
     ) {
       mergedById.set(message.id, message);
       changed = true;
@@ -90,43 +91,10 @@ const mergeMessagesById = (prev: ChatMessage[], incoming: ChatMessage[]) => {
   return merged;
 };
 
-type VoiceNoteStore = {
-  pending: { id: string; sentAt: number }[];
-  resolved: Record<string, string>;
-};
-
-const readVoiceNoteStore = (consultationId: string): VoiceNoteStore => {
-  if (typeof window === 'undefined') return { pending: [], resolved: {} };
-  try {
-    const raw = window.localStorage.getItem(`sehaticare.voiceNotes.${consultationId}`);
-    if (!raw) return { pending: [], resolved: {} };
-    const parsed = JSON.parse(raw) as { pending?: unknown; resolved?: unknown };
-    const pending = Array.isArray(parsed?.pending)
-      ? parsed.pending.filter(
-          (item): item is { id: string; sentAt: number } =>
-            Boolean(item) &&
-            typeof (item as { id?: unknown }).id === 'string' &&
-            typeof (item as { sentAt?: unknown }).sentAt === 'number'
-        )
-      : [];
-    const resolved: Record<string, string> = {};
-    if (parsed?.resolved && typeof parsed.resolved === 'object') {
-      for (const [key, value] of Object.entries(parsed.resolved as Record<string, unknown>)) {
-        if (typeof key === 'string' && typeof value === 'string') {
-          resolved[key] = value;
-        }
-      }
-    }
-    return { pending, resolved };
-  } catch {
-    return { pending: [], resolved: {} };
-  }
-};
-
-const writeVoiceNoteStore = (consultationId: string, store: VoiceNoteStore) => {
+const cleanupLegacyVoiceNotes = (consultationId: string) => {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(`sehaticare.voiceNotes.${consultationId}`, JSON.stringify(store));
+    window.localStorage.removeItem(`sehaticare.voiceNotes.${consultationId}`);
   } catch {
     // ignore storage errors
   }
@@ -194,7 +162,11 @@ export function PatientConsultationDetail() {
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const container = messagesContainerRef.current;
     if (!container) return;
-    container.scrollTo({ top: container.scrollHeight, behavior });
+    if (typeof container.scrollTo === 'function') {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
     isNearBottomRef.current = true;
     setIsNearBottom(true);
     setUnreadCount(0);
@@ -334,16 +306,12 @@ export function PatientConsultationDetail() {
 
   useEffect(() => {
     didInitialScrollRef.current = false;
-    if (!id) {
-      pendingVoiceNotesRef.current = [];
-      voiceNoteByMessageIdRef.current = {};
-      setVoiceNoteByMessageId({});
-      return;
+    pendingVoiceNotesRef.current = [];
+    voiceNoteByMessageIdRef.current = {};
+    setVoiceNoteByMessageId({});
+    if (id) {
+      cleanupLegacyVoiceNotes(id);
     }
-    const store = readVoiceNoteStore(id);
-    pendingVoiceNotesRef.current = store.pending;
-    voiceNoteByMessageIdRef.current = store.resolved;
-    setVoiceNoteByMessageId(store.resolved);
   }, [id]);
 
   useMessagesPolling({
@@ -387,10 +355,7 @@ export function PatientConsultationDetail() {
       voiceNoteByMessageIdRef.current = nextMap;
       setVoiceNoteByMessageId(nextMap);
     }
-    if (id) {
-      writeVoiceNoteStore(id, { pending: pendingVoiceNotesRef.current, resolved: voiceNoteByMessageIdRef.current });
-    }
-  }, [id]);
+  }, []);
 
   useEffect(() => {
     const hasNew = messages.length > lastMessageCountRef.current;
@@ -448,12 +413,9 @@ export function PatientConsultationDetail() {
   const handleVoiceNoteSent = useCallback((voiceNoteId?: string) => {
     if (voiceNoteId) {
       pendingVoiceNotesRef.current.push({ id: voiceNoteId, sentAt: Date.now() });
-      if (id) {
-        writeVoiceNoteStore(id, { pending: pendingVoiceNotesRef.current, resolved: voiceNoteByMessageIdRef.current });
-      }
     }
     loadMessagesRef.current({ silent: false });
-  }, [id]);
+  }, []);
 
   const handleRequestClose = async () => {
     if (!id || !canRequestClose || closeRequesting) return;

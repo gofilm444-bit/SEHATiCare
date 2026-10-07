@@ -7,28 +7,46 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc -p tsconfig.json",
+    "type-check": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:backfill:anonymous": "ts-node prisma/backfill-anonymous-identities.ts",
+    "admin:promote-superadmin": "ts-node prisma/promote-superadmin.ts",
     "seed": "ts-node prisma/seed.ts",
-    "lint": "echo \"lint not configured\" && exit 0",
-    "test": "echo \"tests not implemented\" && exit 0"
+    "seed:stage2": "ts-node prisma/seed-stage2.ts",
+    "seed:content": "ts-node prisma/seed-verified-content.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test -r ts-node/register tests/security.test.ts tests/account.test.ts tests/admin-account-management.test.ts tests/stage2-content.test.ts tests/stage3-health-planning.test.ts tests/stage4-counselor-complaints.test.ts tests/professional-roles.test.ts tests/unified-consultations.test.ts tests/finalization-pre-flowchart.test.ts tests/portal-cms.test.ts",
+    "test:admin-accounts": "node --test -r ts-node/register tests/admin-account-management.test.ts",
+    "test:unified-consultations": "node --test -r ts-node/register tests/unified-consultations.e2e.test.ts",
+    "test:stage3": "node --test -r ts-node/register tests/stage3-health-planning.e2e.test.ts",
+    "test:stage4": "node --test -r ts-node/register tests/stage4-counselor-complaints.e2e.test.ts",
+    "test:professional-roles": "node --test -r ts-node/register tests/professional-roles.e2e.test.ts",
+    "test:stage4:storage": "node --test -r ts-node/register tests/stage4-storage.e2e.test.ts",
+    "test:stage2": "node --test -r ts-node/register tests/stage2-content.e2e.test.ts",
+    "test:stage2:storage": "node --test -r ts-node/register tests/stage2-storage.e2e.test.ts",
+    "test:stage1": "node --test -r ts-node/register tests/stage1-anonymous.e2e.test.ts",
+    "test:gate:postgres": "node --test -r ts-node/register tests/gate-postgresql.e2e.test.ts",
+    "test:gate:voice": "node --test -r ts-node/register tests/gate-voice-note.e2e.test.ts"
+    ,"test:finalization:e2e": "node --test -r ts-node/register tests/finalization-workflow.e2e.test.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
-    "@fastify/cors": "^8.5.0",
-    "@fastify/jwt": "^8.0.1",
-    "@fastify/rate-limit": "^8.1.1",
-    "@fastify/swagger": "8.14.0",
-    "@fastify/swagger-ui": "1.10.2",
+    "@fastify/cookie": "^11.1.0",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/jwt": "^10.2.1",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/swagger": "^9.8.1",
+    "@fastify/swagger-ui": "^6.1.1",
     "@prisma/client": "^5.11.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.5",
-    "fastify": "^4.26.2",
-    "fastify-plugin": "^4.5.1",
-    "minio": "^8.0.2",
+    "fastify": "^5.11.2",
+    "fastify-plugin": "^6.0.0",
+    "minio": "^8.0.7",
     "pino": "^9.2.0",
     "prisma": "^5.11.0",
     "zod": "^3.22.4"
@@ -40,6 +58,6 @@
     "typescript": "^5.3.3"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.1.0"
   }
 }

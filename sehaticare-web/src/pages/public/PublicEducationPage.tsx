@@ -1,9 +1,14 @@
 import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Button } from '../../components/ui/button';
+import { Button, buttonClassName } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { getPublishedItems } from '../../components/portal/PortalContentSections';
-import { loadPortalContent, seedDefaultIfEmpty } from '../../store/portalContentStore';
+import {
+  cleanupLegacyPortalStorage,
+  fetchPublicPortalContent,
+  seedContent,
+  type PortalContent
+} from '../../store/portalContentStore';
 
 type EducationCard = {
   id: string;
@@ -18,7 +23,7 @@ const summarize = (summary: string) =>
     : 'Materi edukasi ringkas untuk membantu memahami langkah awal.';
 
 export function PublicEducationPage() {
-  const [portalContent, setPortalContent] = useState(() => seedDefaultIfEmpty());
+  const [portalContent, setPortalContent] = useState<PortalContent>(() => seedContent);
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const clampStyle: CSSProperties = {
     display: '-webkit-box',
@@ -28,7 +33,10 @@ export function PublicEducationPage() {
   };
 
   useEffect(() => {
-    setPortalContent(loadPortalContent());
+    cleanupLegacyPortalStorage();
+    void fetchPublicPortalContent().then((data) => {
+      if (data) setPortalContent(data);
+    });
   }, []);
 
   const educationItems = useMemo<EducationCard[]>(() => {
@@ -70,9 +78,9 @@ export function PublicEducationPage() {
               Daftar materi edukasi awal dan konten multimedia.
             </p>
           </div>
-          <Button variant="outline" asChild>
-            <Link to="/">Kembali ke Portal</Link>
-          </Button>
+          <Link to="/" className={buttonClassName({ variant: 'outline' })}>
+            Kembali ke Portal
+          </Link>
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">

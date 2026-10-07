@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -12,8 +13,13 @@ import {
   getPublishedItems
 } from '../../components/portal/PortalContentSections';
 import {
-  loadPortalContent,
-  savePortalContent,
+  createAdminPortalItem,
+  deleteAdminPortalItem,
+  fetchAdminPortalContent,
+  reorderAdminPortalItems,
+  seedContent,
+  updateAdminPortalItem,
+  updateAdminPortalStatus,
   type CarouselImage,
   type PortalContent,
   type PortalItem,
@@ -58,13 +64,37 @@ const emptyForm: FormState = {
 };
 
 export function AdminPortalPage() {
+  const { token } = useAuth();
   const [activeTab, setActiveTab] = useState<SectionKey>('hero');
-  const [content, setContent] = useState<PortalContent>(() => loadPortalContent());
+  const [content, setContent] = useState<PortalContent>(() => seedContent);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [formState, setFormState] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const data = await fetchAdminPortalContent(token);
+      setContent(data);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Gagal memuat konten portal dari server.';
+      setErrorMessage(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   const activeSection = useMemo(
     () => sections.find((section) => section.key === activeTab) ?? sections[0],
@@ -99,23 +129,11 @@ export function AdminPortalPage() {
   const edukasiPreview = useMemo(() => getPublishedItems(content.edukasiAwal), [content]);
   const faqPreview = useMemo(() => getPublishedItems(content.faq), [content]);
 
-  const persistContent = (next: PortalContent) => {
-    savePortalContent(next);
-    return next;
-  };
-
-  const updateItems = (updater: (current: BaseItem[]) => BaseItem[]) => {
-    setContent((prev) => {
-      const current = (prev[activeTab] ?? []) as BaseItem[];
-      const updated = updater(current);
-      const next = { ...prev, [activeTab]: updated } as PortalContent;
-      return persistContent(next);
-    });
-  };
-
   const openCreate = () => {
     setEditingId(null);
     setFormState(emptyForm);
+    setErrorMessage(null);
+    setSuccessMessage(null);
     setModalOpen(true);
   };
 
@@ -129,6 +147,8 @@ export function AdminPortalPage() {
       linkUrl: 'linkUrl' in item ? item.linkUrl ?? '' : '',
       mediaUrl: 'mediaUrl' in item ? item.mediaUrl ?? '' : ''
     });
+    setErrorMessage(null);
+    setSuccessMessage(null);
     setModalOpen(true);
   };
 
@@ -148,100 +168,145 @@ export function AdminPortalPage() {
     };
   };
 
-  const saveItem = (event: React.FormEvent) => {
+  const saveItem = async (event: React.FormEvent) => {
     event.preventDefault();
-    const timestamp = new Date().toISOString();
-    updateItems((current) => {
+    setSaving(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
       if (!editingId) {
         if (isCarousel) {
-          const nextItem: CarouselImage = {
-            id: `${activeTab}-${Math.random().toString(36).slice(2, 9)}`,
+          await createAdminPortalItem(token, {
+            section: activeTab,
             title: formState.title.trim() || 'Tanpa judul',
-            imageUrl: formState.imageUrl.trim(),
-            linkUrl: formState.linkUrl.trim() || undefined,
+            image_url: formState.imageUrl.trim(),
+            link_url: formState.linkUrl.trim() || undefined,
             status: formState.status,
-            order: current.length + 1,
-            updatedAt: timestamp
-          };
-          return [...current, nextItem];
+            display_order: items.length + 1
+          });
+        } else {
+          await createAdminPortalItem(token, {
+            section: activeTab,
+            title: formState.title.trim() || 'Tanpa judul',
+            summary: formState.summary.trim() || '-',
+            media_url: formState.mediaUrl.trim() || undefined,
+            status: formState.status,
+            display_order: items.length + 1
+          });
         }
-        const nextItem: PortalItem = {
-          id: `${activeTab}-${Math.random().toString(36).slice(2, 9)}`,
-          title: formState.title.trim() || 'Tanpa judul',
-          summary: formState.summary.trim() || '-',
-          mediaUrl: formState.mediaUrl.trim() || undefined,
-          status: formState.status,
-          order: current.length + 1,
-          updatedAt: timestamp
-        };
-        return [...current, nextItem];
+        setSuccessMessage('Konten berhasil ditambahkan ke database.');
+      } else {
+        if (isCarousel) {
+          await updateAdminPortalItem(token, editingId, {
+            title: formState.title.trim() || 'Tanpa judul',
+            image_url: formState.imageUrl.trim(),
+            link_url: formState.linkUrl.trim() || undefined,
+            status: formState.status
+          });
+        } else {
+          await updateAdminPortalItem(token, editingId, {
+            title: formState.title.trim() || 'Tanpa judul',
+            summary: formState.summary.trim() || '-',
+            media_url: formState.mediaUrl.trim() || undefined,
+            status: formState.status
+          });
+        }
+        setSuccessMessage('Perubahan konten berhasil disimpan ke database.');
       }
-      return current.map((item) => {
-        if (item.id !== editingId) return item;
-        if (isCarousel && 'imageUrl' in item) {
-          return {
-            ...item,
-            title: formState.title.trim() || item.title,
-            imageUrl: formState.imageUrl.trim() || item.imageUrl,
-            linkUrl: formState.linkUrl.trim() || undefined,
-            status: formState.status,
-            updatedAt: timestamp
-          };
-        }
-        if (!isCarousel && 'summary' in item) {
-          return {
-            ...item,
-            title: formState.title.trim() || item.title,
-            summary: formState.summary.trim() || item.summary,
-            mediaUrl: formState.mediaUrl.trim() || undefined,
-            status: formState.status,
-            updatedAt: timestamp
-          };
-        }
-        return { ...item, title: formState.title.trim() || item.title, status: formState.status, updatedAt: timestamp };
-      });
-    });
-    setModalOpen(false);
+      setModalOpen(false);
+      await loadData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal menyimpan konten ke server.';
+      setErrorMessage(msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const updateStatus = (id: string, nextStatus: Status) => {
-    updateItems((current) =>
-      current.map((item) =>
-        item.id === id ? { ...item, status: nextStatus, updatedAt: new Date().toISOString() } : item
-      )
-    );
+  const updateStatus = async (id: string, nextStatus: Status) => {
+    setSaving(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      await updateAdminPortalStatus(token, id, nextStatus);
+      setSuccessMessage(`Status konten diubah menjadi ${nextStatus}.`);
+      await loadData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal mengubah status konten.';
+      setErrorMessage(msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const deleteItem = (id: string) => {
-    updateItems((current) => {
-      const filtered = current.filter((item) => item.id !== id);
-      return filtered.map((item, index) => ({ ...item, order: index + 1 }));
-    });
+  const deleteItem = async (id: string) => {
+    if (!window.confirm('Arsipkan konten ini? Tindakan akan dicatat di audit log.')) return;
+    setSaving(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      await deleteAdminPortalItem(token, id);
+      setSuccessMessage('Konten berhasil diarsipkan.');
+      await loadData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal mengarsipkan konten.';
+      setErrorMessage(msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const moveItem = (id: string, direction: 'up' | 'down') => {
-    updateItems((current) => {
-      const sorted = [...current].sort((a, b) => a.order - b.order);
-      const index = sorted.findIndex((item) => item.id === id);
-      if (index < 0) return current;
-      const nextIndex = direction === 'up' ? index - 1 : index + 1;
-      if (nextIndex < 0 || nextIndex >= sorted.length) return current;
-      const [moved] = sorted.splice(index, 1);
-      sorted.splice(nextIndex, 0, moved);
-      return sorted.map((item, idx) => ({ ...item, order: idx + 1 }));
-    });
+  const moveItem = async (id: string, direction: 'up' | 'down') => {
+    const sorted = [...items].sort((a, b) => a.order - b.order);
+    const index = sorted.findIndex((item) => item.id === id);
+    if (index < 0) return;
+    const nextIndex = direction === 'up' ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= sorted.length) return;
+    const [moved] = sorted.splice(index, 1);
+    sorted.splice(nextIndex, 0, moved);
+    const reordered = sorted.map((item, idx) => ({ id: item.id, display_order: idx + 1 }));
+
+    setSaving(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      await reorderAdminPortalItems(token, reordered);
+      setSuccessMessage('Urutan konten berhasil diperbarui.');
+      await loadData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal mengubah urutan konten.';
+      setErrorMessage(msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-slate-500">Admin</p>
+          <p className="text-sm text-slate-500">Admin · PostgreSQL Single Source of Truth</p>
           <h1 className="text-2xl font-semibold text-slate-900">CMS Portal Depan</h1>
-          <p className="text-sm text-slate-600">Kelola konten publik untuk portal SEHATiCare.</p>
+          <p className="text-sm text-slate-600">Kelola konten publik untuk portal SEHATiCare melalui backend API.</p>
         </div>
-        <Button onClick={openCreate}>Tambah Baru</Button>
+        <div className="flex items-center gap-2">
+          {loading && <span className="text-xs text-slate-500">Memuat data...</span>}
+          <Button onClick={openCreate} disabled={loading || saving}>Tambah Baru</Button>
+        </div>
       </div>
+
+      {errorMessage && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">
+          {errorMessage}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700" role="status">
+          {successMessage}
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -284,7 +349,7 @@ export function AdminPortalPage() {
           </div>
           {items.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-600">
-              Belum ada konten di section ini.
+              {loading ? 'Memuat data dari server...' : 'Belum ada konten di section ini.'}
             </div>
           ) : (
             items.map((item) => (
@@ -314,29 +379,30 @@ export function AdminPortalPage() {
                   {new Date(item.updatedAt).toLocaleString('id-ID')}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => openEdit(item)}>
+                  <Button size="sm" variant="outline" onClick={() => openEdit(item)} disabled={saving}>
                     Edit
                   </Button>
                   <Button
                     size="sm"
                     variant="secondary"
+                    disabled={saving}
                     onClick={() =>
                       updateStatus(item.id, item.status === 'Published' ? 'Draft' : 'Published')
                     }
                   >
                     {item.status === 'Published' ? 'Unpublish' : 'Publish'}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => updateStatus(item.id, 'Archived')}>
+                  <Button size="sm" variant="outline" onClick={() => updateStatus(item.id, 'Archived')} disabled={saving}>
                     Archive
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => deleteItem(item.id)}>
+                  <Button size="sm" variant="outline" onClick={() => deleteItem(item.id)} disabled={saving}>
                     Hapus
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => moveItem(item.id, 'up')}
-                    disabled={item.order === 1}
+                    disabled={saving || item.order === 1}
                   >
                     Up
                   </Button>
@@ -344,7 +410,7 @@ export function AdminPortalPage() {
                     size="sm"
                     variant="ghost"
                     onClick={() => moveItem(item.id, 'down')}
-                    disabled={item.order === items.length}
+                    disabled={saving || item.order === items.length}
                   >
                     Down
                   </Button>
@@ -358,7 +424,7 @@ export function AdminPortalPage() {
       <Card>
         <CardHeader>
           <CardTitle>Preview Portal Depan</CardTitle>
-          <CardDescription>Pratinjau ringkas konten publik dari data tersimpan.</CardDescription>
+          <CardDescription>Pratinjau ringkas konten publik dari database.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <PortalCarousel items={carouselPreview} />
@@ -415,6 +481,7 @@ export function AdminPortalPage() {
                       onChange={(event) => setFormState({ ...formState, title: event.target.value })}
                       placeholder="Judul konten"
                       required
+                      disabled={saving}
                     />
                   </div>
                   {isCarousel ? (
@@ -427,12 +494,14 @@ export function AdminPortalPage() {
                           onChange={(event) => setFormState({ ...formState, imageUrl: event.target.value })}
                           placeholder="https://..."
                           required
+                          disabled={saving}
                         />
                         <div className="flex flex-wrap gap-2">
                           <Button
                             type="button"
                             variant="outline"
                             onClick={() => imageInputRef.current?.click()}
+                            disabled={saving}
                           >
                             Upload gambar
                           </Button>
@@ -453,6 +522,7 @@ export function AdminPortalPage() {
                           value={formState.linkUrl}
                           onChange={(event) => setFormState({ ...formState, linkUrl: event.target.value })}
                           placeholder="/edukasi"
+                          disabled={saving}
                         />
                       </div>
                     </>
@@ -468,6 +538,7 @@ export function AdminPortalPage() {
                             setFormState({ ...formState, summary: event.target.value })
                           }
                           placeholder="Ringkasan singkat konten"
+                          disabled={saving}
                         />
                       </div>
                       {isMediaUploadTab ? (
@@ -480,12 +551,14 @@ export function AdminPortalPage() {
                               setFormState({ ...formState, mediaUrl: event.target.value })
                             }
                             placeholder="https://..."
+                            disabled={saving}
                           />
                           <div className="flex flex-wrap gap-2">
                             <Button
                               type="button"
                               variant="outline"
                               onClick={() => mediaInputRef.current?.click()}
+                              disabled={saving}
                             >
                               {mediaUploadLabel}
                             </Button>
@@ -510,6 +583,7 @@ export function AdminPortalPage() {
                       id="status"
                       className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
                       value={formState.status}
+                      disabled={saving}
                       onChange={(event) =>
                         setFormState({ ...formState, status: event.target.value as Status })
                       }
@@ -520,10 +594,12 @@ export function AdminPortalPage() {
                     </select>
                   </div>
                   <div className="flex justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
+                    <Button type="button" variant="outline" onClick={() => setModalOpen(false)} disabled={saving}>
                       Batal
                     </Button>
-                    <Button type="submit">Simpan</Button>
+                    <Button type="submit" disabled={saving}>
+                      {saving ? 'Menyimpan...' : 'Simpan'}
+                    </Button>
                   </div>
                 </form>
               </CardContent>

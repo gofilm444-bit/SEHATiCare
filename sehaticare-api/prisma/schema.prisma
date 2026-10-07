@@ -50,8 +50,10 @@ model chat_messages {
   sender_role     chat_sender_role
   sender_user_id  String?          @db.Uuid
   content         String
+  voice_note_id   String?          @unique @db.Uuid
   created_at      DateTime         @default(now())
   consultations   consultations    @relation(fields: [consultation_id], references: [id])
+  voice_note      voice_notes?     @relation("chat_messages_voice_note", fields: [voice_note_id], references: [id])
 
   @@index([consultation_id, created_at])
 }
@@ -138,19 +140,311 @@ model doctor_profiles {
   @@index([verification_status])
 }
 
+model counselor_profiles {
+  user_id                  String                     @id @db.Uuid
+  permission_enabled       Boolean                    @default(false)
+  verification_status      doctor_verification_status @default(PENDING)
+  professional_name        String
+  profession               String
+  service_role             professional_service_role @default(COUNSELOR)
+  facility_id              String?                    @db.Uuid
+  region_id                String?                    @db.Uuid
+  competencies             String[]                   @default([])
+  languages                String[]                   @default(["Bahasa Indonesia"])
+  active_days              Int[]                      @default([1, 2, 3, 4, 5])
+  opens_at                 String                     @default("08:00")
+  closes_at                String                     @default("16:00")
+  timezone                 String                     @default("Asia/Jayapura")
+  is_available             Boolean                    @default(false)
+  max_active_conversations Int                        @default(10)
+  is_active                Boolean                    @default(true)
+  verified_at              DateTime?
+  verified_by              String?                    @db.Uuid
+  created_at               DateTime                   @default(now())
+  updated_at               DateTime
+  user                     users                      @relation("counselor_profile_user", fields: [user_id], references: [id])
+  verifier                 users?                     @relation("counselor_profile_verifier", fields: [verified_by], references: [id])
+  facility                 health_facilities?         @relation(fields: [facility_id], references: [id])
+  region                   regions?                   @relation(fields: [region_id], references: [id])
+
+  @@index([permission_enabled, verification_status, is_active, is_available])
+  @@index([facility_id, region_id])
+}
+
+model counselor_applications {
+  id                       String                               @id @db.Uuid
+  public_id                String                               @unique @default(dbgenerated("'cap_' || replace(gen_random_uuid()::text, '-', '')"))
+  user_id                  String                               @unique @db.Uuid
+  status                   counselor_application_status         @default(DRAFT)
+  professional_name        String
+  profession               String
+  service_role             professional_service_role              @default(COUNSELOR)
+  license_number           String?
+  facility_id              String?                              @db.Uuid
+  region_id                String?                              @db.Uuid
+  competencies             String[]                             @default([])
+  languages                String[]                             @default(["Bahasa Indonesia"])
+  active_days              Int[]                                @default([1, 2, 3, 4, 5])
+  opens_at                 String                               @default("08:00")
+  closes_at                String                               @default("16:00")
+  timezone                 String                               @default("Asia/Jayapura")
+  max_active_conversations Int                                  @default(10)
+  applicant_notes          String?
+  revision_notes           String?
+  rejection_reason         String?
+  submitted_at             DateTime?
+  reviewed_at              DateTime?
+  verified_at              DateTime?
+  activated_at             DateTime?
+  created_at               DateTime                             @default(now())
+  updated_at               DateTime
+  user                     users                                @relation("counselor_application_user", fields: [user_id], references: [id])
+  documents                counselor_documents[]
+  upload_sessions          counselor_document_upload_sessions[]
+  review_events            counselor_review_events[]
+  status_history           counselor_status_history[]
+
+  @@index([status, submitted_at])
+}
+
+model counselor_document_upload_sessions {
+  id              String                  @id @db.Uuid
+  application_id  String                  @db.Uuid
+  requested_by    String                  @db.Uuid
+  document_type   counselor_document_type
+  storage_key     String                  @unique
+  content_type    String
+  file_size_bytes Int
+  expires_at      DateTime
+  committed_at    DateTime?
+  created_at      DateTime                @default(now())
+  application     counselor_applications  @relation(fields: [application_id], references: [id])
+
+  @@index([application_id, created_at])
+  @@index([expires_at, committed_at])
+}
+
+model counselor_documents {
+  id              String                  @id @db.Uuid
+  public_id       String                  @unique @default(dbgenerated("'cdoc_' || replace(gen_random_uuid()::text, '-', '')"))
+  application_id  String                  @db.Uuid
+  uploaded_by     String                  @db.Uuid
+  document_type   counselor_document_type
+  storage_key     String                  @unique
+  content_type    String
+  file_size_bytes Int
+  status          String                  @default("ACTIVE")
+  reviewed_at     DateTime?
+  created_at      DateTime                @default(now())
+  application     counselor_applications  @relation(fields: [application_id], references: [id])
+
+  @@index([application_id, document_type, created_at])
+}
+
+model counselor_review_events {
+  id             String                 @id @db.Uuid
+  application_id String                 @db.Uuid
+  actor_user_id  String                 @db.Uuid
+  action         String
+  reason         String?
+  safe_metadata  Json?
+  created_at     DateTime               @default(now())
+  application    counselor_applications @relation(fields: [application_id], references: [id])
+
+  @@index([application_id, created_at])
+}
+
+model counselor_status_history {
+  id             String                        @id @db.Uuid
+  application_id String                        @db.Uuid
+  changed_by     String                        @db.Uuid
+  from_status    counselor_application_status?
+  to_status      counselor_application_status
+  reason         String?
+  created_at     DateTime                      @default(now())
+  application    counselor_applications        @relation(fields: [application_id], references: [id])
+
+  @@index([application_id, created_at])
+}
+
 model education_articles {
-  id                                         String    @id @db.Uuid
+  id                                         String              @id @db.Uuid
   title                                      String
-  slug                                       String    @unique
+  slug                                       String              @unique
   body_markdown                              String
-  is_published                               Boolean   @default(false)
+  is_published                               Boolean             @default(false)
   published_at                               DateTime?
-  created_by                                 String?   @db.Uuid
-  updated_by                                 String?   @db.Uuid
-  created_at                                 DateTime  @default(now())
+  created_by                                 String?             @db.Uuid
+  updated_by                                 String?             @db.Uuid
+  created_at                                 DateTime            @default(now())
   updated_at                                 DateTime
-  users_education_articles_created_byTousers users?    @relation("education_articles_created_byTousers", fields: [created_by], references: [id])
-  users_education_articles_updated_byTousers users?    @relation("education_articles_updated_byTousers", fields: [updated_by], references: [id])
+  summary                                    String              @default("")
+  category_id                                String?             @db.Uuid
+  thumbnail_key                              String?
+  thumbnail_alt                              String?
+  language                                   String              @default("id")
+  reviewer_id                                String?             @db.Uuid
+  publisher_id                               String?             @db.Uuid
+  publication_status                         publication_status  @default(DRAFT)
+  source_reference                           String?
+  reading_minutes                            Int                 @default(1)
+  featured                                   Boolean             @default(false)
+  content_categories                         content_categories? @relation(fields: [category_id], references: [id])
+  users_education_articles_created_byTousers users?              @relation("education_articles_created_byTousers", fields: [created_by], references: [id])
+  users_education_articles_updated_byTousers users?              @relation("education_articles_updated_byTousers", fields: [updated_by], references: [id])
+  portal_contents                            portal_contents[]
+}
+
+model regions {
+  id                       String                     @id @db.Uuid
+  code                     String                     @unique
+  name                     String
+  type                     region_type
+  parent_id                String?                    @db.Uuid
+  is_active                Boolean                    @default(true)
+  created_at               DateTime                   @default(now())
+  updated_at               DateTime
+  parent                   regions?                   @relation("region_hierarchy", fields: [parent_id], references: [id])
+  children                 regions[]                  @relation("region_hierarchy")
+  case_statistics          case_statistics[]
+  health_facilities        health_facilities[]
+  counselor_profiles       counselor_profiles[]
+  consultation_preferences consultation_preferences[]
+  outreach_cases           professional_outreach_cases[]
+
+  @@index([parent_id, is_active])
+  @@index([name])
+}
+
+model content_categories {
+  id                 String               @id @db.Uuid
+  slug               String               @unique
+  name               String
+  is_active          Boolean              @default(true)
+  created_at         DateTime             @default(now())
+  updated_at         DateTime
+  education_articles education_articles[]
+  education_videos   education_videos[]
+}
+
+model case_statistics {
+  id                 String             @id @db.Uuid
+  region_id          String             @db.Uuid
+  period_start       DateTime
+  period_end         DateTime
+  year               Int
+  period_type        period_type
+  case_count         Int
+  data_category      String
+  source_name        String
+  source_publication String?
+  source_url         String?
+  updated_on         DateTime
+  methodology_note   String?
+  publication_status publication_status @default(DRAFT)
+  is_sample          Boolean            @default(false)
+  created_by         String?            @db.Uuid
+  reviewer_id        String?            @db.Uuid
+  publisher_id       String?            @db.Uuid
+  published_at       DateTime?
+  created_at         DateTime           @default(now())
+  updated_at         DateTime
+  regions            regions            @relation(fields: [region_id], references: [id])
+
+  @@index([publication_status, year, region_id])
+  @@index([region_id, period_start, period_end])
+}
+
+model education_videos {
+  id                 String              @id @db.Uuid
+  title              String
+  description        String
+  category_id        String?             @db.Uuid
+  source_type        video_source_type
+  storage_key        String?
+  external_url       String?
+  thumbnail_key      String?
+  thumbnail_alt      String
+  duration_seconds   Int?
+  file_size_bytes    Int?
+  language           String              @default("id")
+  subtitle_text      String
+  transcript_text    String
+  speaker_type       speaker_type        @default(GENERAL)
+  publication_status publication_status  @default(DRAFT)
+  created_by         String?             @db.Uuid
+  reviewer_id        String?             @db.Uuid
+  publisher_id       String?             @db.Uuid
+  published_at       DateTime?
+  created_at         DateTime            @default(now())
+  updated_at         DateTime
+  content_categories content_categories? @relation(fields: [category_id], references: [id])
+  media_consents     media_consents[]
+  portal_contents    portal_contents[]
+
+  @@index([publication_status, published_at])
+}
+
+model media_consents {
+  id                   String           @id @db.Uuid
+  media_id             String           @db.Uuid
+  subject_type         String
+  subject_reference    String
+  consent_version      String
+  scope                String
+  status               consent_status   @default(PENDING)
+  approved_at          DateTime?
+  expires_at           DateTime?
+  withdrawn_at         DateTime?
+  document_storage_key String?
+  recorded_by          String?          @db.Uuid
+  reviewed_by          String?          @db.Uuid
+  created_at           DateTime         @default(now())
+  updated_at           DateTime
+  education_videos     education_videos @relation(fields: [media_id], references: [id])
+
+  @@index([media_id, status])
+}
+
+model health_facilities {
+  id                       String                       @id @db.Uuid
+  name                     String
+  facility_type            facility_type
+  region_id                String                       @db.Uuid
+  district_name            String?
+  address                  String
+  public_contact           String?
+  service_hours            String
+  description              String?
+  latitude                 Decimal?                     @db.Decimal(9, 6)
+  longitude                Decimal?                     @db.Decimal(9, 6)
+  is_active                Boolean                      @default(true)
+  verification_status      facility_verification_status @default(DRAFT)
+  verified_at              DateTime?
+  source_name              String
+  is_sample                Boolean                      @default(false)
+  created_by               String?                      @db.Uuid
+  updated_by               String?                      @db.Uuid
+  created_at               DateTime                     @default(now())
+  updated_at               DateTime
+  regions                  regions                      @relation(fields: [region_id], references: [id])
+  facility_services        facility_services[]
+  control_schedules        control_schedules[]
+  counselor_profiles       counselor_profiles[]
+  consultation_preferences consultation_preferences[]
+
+  @@index([region_id, facility_type, verification_status, is_active])
+  @@index([name])
+}
+
+model facility_services {
+  facility_id String                @db.Uuid
+  service     facility_service_type
+  verified    Boolean               @default(false)
+  facilities  health_facilities     @relation(fields: [facility_id], references: [id])
+
+  @@id([facility_id, service])
+  @@index([service, verified])
 }
 
 model otp_requests {
@@ -181,9 +475,37 @@ model refresh_tokens {
   users      users     @relation(fields: [user_id], references: [id])
 }
 
+model account_consents {
+  id             String       @id @db.Uuid
+  user_id        String       @db.Uuid
+  consent_type   consent_type
+  policy_version String
+  accepted_at    DateTime     @default(now())
+  source         String
+  users          users        @relation(fields: [user_id], references: [id])
+
+  @@unique([user_id, consent_type, policy_version])
+  @@index([user_id, accepted_at])
+}
+
 model users {
   id                                                      String                       @id @db.Uuid
+  public_id                                               String                       @unique @default(dbgenerated("'usr_' || replace(gen_random_uuid()::text, '-', '')"))
+  login_id                                                String?                      @unique
+  display_alias                                           String?
+  account_mode                                            account_mode                 @default(LEGACY)
+  recovery_code_hash                                      String?
+  recovery_enabled                                        Boolean                      @default(false)
+  credentials_shown_at                                    DateTime?
+  last_alias_changed_at                                   DateTime?
+  avatar_key                                              String?                      @default("avatar-leaf")
+  preferred_language                                      String                       @default("id")
+  timezone                                                String                       @default("Asia/Jayapura")
+  accessibility_preferences                               Json?
+  notification_preferences                                Json?
+  session_version                                         Int                          @default(0)
   role                                                    user_role                    @default(PASIEN)
+  is_superadmin                                           Boolean                      @default(false)
   phone_e164                                              String?                      @unique
   email                                                   String?                      @unique
   full_name                                               String
@@ -191,6 +513,7 @@ model users {
   created_at                                              DateTime                     @default(now())
   updated_at                                              DateTime
   password_hash                                           String?
+  account_consents                                        account_consents[]
   audit_logs                                              audit_logs[]
   consultation_messages                                   consultation_messages[]
   consultation_participants                               consultation_participants[]
@@ -205,6 +528,58 @@ model users {
   refresh_tokens                                          refresh_tokens[]
   voice_note_upload_sessions                              voice_note_upload_sessions[]
   voice_notes                                             voice_notes[]
+  control_schedules                                       control_schedules[]          @relation("control_schedule_owner")
+  control_schedules_as_worker                             control_schedules[]          @relation("control_schedule_worker")
+  medication_reminders                                    medication_reminders[]
+  medication_occurrences                                  medication_occurrences[]
+  notification_preference                                 notification_preferences?
+  notification_deliveries                                 notification_deliveries[]
+  service_conversations_owned                             service_conversations[]      @relation("service_conversation_owner")
+  service_conversations_assigned                          service_conversations[]      @relation("service_conversation_counselor")
+  counselor_assignments_as_counselor                      counselor_assignments[]      @relation("counselor_assignment_counselor")
+  counselor_assignments_as_assigner                       counselor_assignments[]      @relation("counselor_assignment_assigner")
+  service_messages                                        service_messages[]
+  message_receipts                                        message_receipts[]
+  conversation_reports                                    conversation_reports[]
+  conversation_blocks                                     conversation_blocks[]        @relation("conversation_block_user")
+  conversation_blocks_as_counselor                        conversation_blocks[]        @relation("conversation_block_counselor")
+  complaint_tickets                                       complaint_tickets[]          @relation("complaint_owner")
+  complaint_tickets_assigned                              complaint_tickets[]          @relation("complaint_officer")
+  complaint_messages                                      complaint_messages[]
+  complaint_assignments_as_officer                        complaint_assignments[]      @relation("complaint_assignment_officer")
+  complaint_assignments_as_assigner                       complaint_assignments[]      @relation("complaint_assignment_assigner")
+  sensitive_access_audits                                 sensitive_access_audits[]
+  counselor_profile                                       counselor_profiles?          @relation("counselor_profile_user")
+  counselor_application                                   counselor_applications?      @relation("counselor_application_user")
+  counselor_profiles_verified                             counselor_profiles[]         @relation("counselor_profile_verifier")
+  counselor_conflicts_as_patient                          counselor_conflicts[]        @relation("counselor_conflict_patient")
+  counselor_conflicts_as_counselor                        counselor_conflicts[]        @relation("counselor_conflict_counselor")
+  consultation_preferences_selected                       consultation_preferences[]   @relation("consultation_preference_selected")
+  consultation_preferences_recommended                    consultation_preferences[]   @relation("consultation_preference_recommended")
+  outreach_cases_created                                  professional_outreach_cases[] @relation("outreach_case_creator")
+  portal_contents_created                                 portal_contents[]            @relation("portal_content_created_by")
+  portal_contents_updated                                 portal_contents[]            @relation("portal_content_updated_by")
+}
+
+model professional_outreach_cases {
+  id                 String                    @id @db.Uuid
+  public_id          String                    @unique @default(dbgenerated("'out_' || replace(gen_random_uuid()::text, '-', '')"))
+  created_by         String                    @db.Uuid
+  title              String
+  summary            String
+  region_id          String?                   @db.Uuid
+  status             outreach_case_status      @default(OPEN)
+  referral_target    outreach_referral_target?
+  referral_note      String?
+  referred_at        DateTime?
+  closed_at          DateTime?
+  created_at         DateTime                  @default(now())
+  updated_at         DateTime
+  creator            users                     @relation("outreach_case_creator", fields: [created_by], references: [id])
+  region             regions?                  @relation(fields: [region_id], references: [id])
+
+  @@index([created_by, status, updated_at])
+  @@index([region_id, status])
 }
 
 model voice_note_upload_sessions {
@@ -213,7 +588,9 @@ model voice_note_upload_sessions {
   requested_by     String        @db.Uuid
   storage_provider String
   storage_key      String
-  upload_url       String
+  upload_url       String?
+  content_type     String?
+  file_size_bytes  Int?
   expires_at       DateTime
   committed_at     DateTime?
   created_at       DateTime      @default(now())
@@ -237,6 +614,7 @@ model voice_notes {
   updated_at            DateTime
   deleted_at            DateTime?
   consultation_messages consultation_messages?
+  chat_message          chat_messages?         @relation("chat_messages_voice_note")
   consultations         consultations          @relation(fields: [consultation_id], references: [id])
   users                 users                  @relation(fields: [uploaded_by], references: [id])
 
@@ -248,12 +626,55 @@ enum user_role {
   DOKTER
   ADMIN
   AI
+  COUNSELOR
+  COMPLAINT_OFFICER
+  SUPERVISOR
+}
+
+enum professional_service_role {
+  COUNSELOR
+  FACILITATOR
+  COMPANION
+  OUTREACH_WORKER
+  SUPPORT_OFFICER
+}
+
+enum outreach_case_status {
+  OPEN
+  REFERRED
+  CLOSED
+}
+
+enum outreach_referral_target {
+  COUNSELOR
+  COMPANION
+  FACILITY
 }
 
 enum doctor_verification_status {
   PENDING
   VERIFIED
   REJECTED
+}
+
+enum counselor_application_status {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  REVISION_REQUIRED
+  VERIFIED
+  ACTIVE
+  INACTIVE
+  REJECTED
+  SUSPENDED
+}
+
+enum counselor_document_type {
+  IDENTITY
+  PROFESSIONAL_LICENSE
+  CERTIFICATE
+  FACILITY_ASSIGNMENT
+  OTHER
 }
 
 enum consultation_status {
@@ -284,4 +705,813 @@ enum chat_sender_role {
   PASIEN
   DOKTER
   AI
+}
+
+enum account_mode {
+  LEGACY
+  ANONYMOUS
+}
+
+enum consent_type {
+  TERMS
+  PRIVACY
+}
+
+enum region_type {
+  PROVINCE
+  CITY_REGENCY
+  DISTRICT
+}
+
+enum publication_status {
+  DRAFT
+  REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+enum period_type {
+  MONTHLY
+  QUARTERLY
+  SEMESTER
+  YEARLY
+}
+
+enum video_source_type {
+  UPLOAD
+  EXTERNAL
+}
+
+enum speaker_type {
+  GENERAL
+  ODHIV_OPEN
+}
+
+enum consent_status {
+  NOT_REQUIRED
+  PENDING
+  APPROVED
+  WITHDRAWN
+  EXPIRED
+}
+
+enum facility_type {
+  PUSKESMAS
+  RUMAH_SAKIT
+  KLINIK
+}
+
+enum facility_verification_status {
+  DRAFT
+  UNVERIFIED
+  VERIFIED
+  INACTIVE
+}
+
+enum facility_service_type {
+  COUNSELING
+  HIV_TESTING
+  ARV_SERVICE
+  PSYCHOLOGY
+  LABORATORY
+  PHARMACY
+  DISABILITY_ACCESS
+  OTHER
+}
+
+model control_schedules {
+  id                   String                     @id @db.Uuid
+  public_id            String                     @unique @default(dbgenerated("'ctl_' || replace(gen_random_uuid()::text, '-', '')"))
+  user_id              String                     @db.Uuid
+  facility_id          String?                    @db.Uuid
+  worker_id            String?                    @db.Uuid
+  previous_schedule_id String?                    @db.Uuid
+  starts_at            DateTime
+  timezone             String
+  control_type         String
+  user_note            String?
+  worker_note_private  String?
+  worker_note_shared   String?
+  status               control_schedule_status    @default(SCHEDULED)
+  source               schedule_source
+  reminder_enabled     Boolean                    @default(false)
+  reminder_minutes     Int?
+  cancelled_at         DateTime?
+  completed_at         DateTime?
+  created_by           String                     @db.Uuid
+  updated_by           String                     @db.Uuid
+  created_at           DateTime                   @default(now())
+  updated_at           DateTime
+  owner                users                      @relation("control_schedule_owner", fields: [user_id], references: [id])
+  worker               users?                     @relation("control_schedule_worker", fields: [worker_id], references: [id])
+  facility             health_facilities?         @relation(fields: [facility_id], references: [id])
+  previous_schedule    control_schedules?         @relation("control_schedule_reschedule", fields: [previous_schedule_id], references: [id])
+  rescheduled_to       control_schedules[]        @relation("control_schedule_reschedule")
+  history              control_schedule_history[]
+
+  @@index([user_id, status, starts_at])
+  @@index([worker_id, status, starts_at])
+  @@index([starts_at, reminder_enabled, status])
+}
+
+model control_schedule_history {
+  id            String                   @id @db.Uuid
+  schedule_id   String                   @db.Uuid
+  actor_user_id String                   @db.Uuid
+  action        String
+  from_status   control_schedule_status?
+  to_status     control_schedule_status?
+  occurred_at   DateTime                 @default(now())
+  schedule      control_schedules        @relation(fields: [schedule_id], references: [id])
+
+  @@index([schedule_id, occurred_at])
+}
+
+model medication_reminders {
+  id                   String                      @id @db.Uuid
+  public_id            String                      @unique @default(dbgenerated("'med_' || replace(gen_random_uuid()::text, '-', '')"))
+  user_id              String                      @db.Uuid
+  display_label        String
+  medication_name      String?
+  reveal_name_in_app   Boolean                     @default(false)
+  dosage_text          String?
+  instructions         String?
+  timezone             String
+  recurrence           medication_recurrence
+  start_date           DateTime                    @db.Date
+  end_date             DateTime?                   @db.Date
+  active_days          Int[]
+  is_active            Boolean                     @default(true)
+  notification_privacy notification_privacy        @default(NEUTRAL)
+  source               schedule_source             @default(USER)
+  created_by           String                      @db.Uuid
+  deleted_at           DateTime?
+  created_at           DateTime                    @default(now())
+  updated_at           DateTime
+  owner                users                       @relation(fields: [user_id], references: [id])
+  times                medication_reminder_times[]
+  occurrences          medication_occurrences[]
+
+  @@index([user_id, is_active, deleted_at])
+}
+
+model medication_reminder_times {
+  id          String               @id @db.Uuid
+  reminder_id String               @db.Uuid
+  local_time  String
+  reminder    medication_reminders @relation(fields: [reminder_id], references: [id])
+
+  @@unique([reminder_id, local_time])
+}
+
+model medication_occurrences {
+  id              String                       @id @db.Uuid
+  public_id       String                       @unique @default(dbgenerated("'occ_' || replace(gen_random_uuid()::text, '-', '')"))
+  reminder_id     String                       @db.Uuid
+  user_id         String                       @db.Uuid
+  scheduled_at    DateTime
+  responded_at    DateTime?
+  status          medication_occurrence_status @default(PENDING)
+  snooze_until    DateTime?
+  snooze_count    Int                          @default(0)
+  response_source occurrence_response_source   @default(USER)
+  note            String?
+  created_at      DateTime                     @default(now())
+  updated_at      DateTime
+  reminder        medication_reminders         @relation(fields: [reminder_id], references: [id])
+  owner           users                        @relation(fields: [user_id], references: [id])
+
+  @@unique([reminder_id, scheduled_at])
+  @@index([user_id, scheduled_at, status])
+  @@index([status, scheduled_at])
+}
+
+model notification_preferences {
+  user_id                  String   @id @db.Uuid
+  control_schedule_enabled Boolean  @default(true)
+  medication_enabled       Boolean  @default(true)
+  in_app_enabled           Boolean  @default(true)
+  browser_enabled          Boolean  @default(false)
+  sound_enabled            Boolean  @default(false)
+  vibration_enabled        Boolean  @default(false)
+  preview_detail           Boolean  @default(false)
+  hide_medication_name     Boolean  @default(true)
+  quiet_hours_start        String?
+  quiet_hours_end          String?
+  timezone                 String   @default("Asia/Jayapura")
+  created_at               DateTime @default(now())
+  updated_at               DateTime
+  owner                    users    @relation(fields: [user_id], references: [id])
+}
+
+model notification_deliveries {
+  id                 String                       @id @db.Uuid
+  public_id          String                       @unique @default(dbgenerated("'ntf_' || replace(gen_random_uuid()::text, '-', '')"))
+  user_id            String                       @db.Uuid
+  deduplication_key  String                       @unique
+  kind               notification_kind
+  resource_public_id String
+  neutral_text       String
+  due_at             DateTime
+  status             notification_delivery_status @default(PENDING)
+  attempt_count      Int                          @default(0)
+  delivered_at       DateTime?
+  read_at            DateTime?
+  failure_code       String?
+  created_at         DateTime                     @default(now())
+  updated_at         DateTime
+  owner              users                        @relation(fields: [user_id], references: [id])
+
+  @@index([user_id, status, due_at])
+  @@index([status, due_at])
+}
+
+enum control_schedule_status {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  MISSED
+  RESCHEDULED
+}
+
+enum schedule_source {
+  USER
+  HEALTH_WORKER
+  SYSTEM
+}
+
+enum medication_recurrence {
+  ONCE
+  DAILY
+  WEEKLY
+  MULTIPLE_DAILY
+}
+
+enum medication_occurrence_status {
+  PENDING
+  TAKEN
+  SKIPPED
+  SNOOZED
+  MISSED
+}
+
+enum occurrence_response_source {
+  USER
+  SYSTEM
+}
+
+enum notification_privacy {
+  NEUTRAL
+  LABEL_IN_APP
+}
+
+enum notification_kind {
+  CONTROL_SCHEDULE
+  MEDICATION_REMINDER
+  SCHEDULE_UPDATED
+  NEW_MESSAGE
+  COMPLAINT_UPDATE
+}
+
+enum notification_delivery_status {
+  PENDING
+  DELIVERED
+  SUPPRESSED
+  FAILED
+}
+
+model service_conversations {
+  id                     String                               @id @db.Uuid
+  public_id              String                               @unique @default(dbgenerated("'svc_' || replace(gen_random_uuid()::text, '-', '')"))
+  user_id                String                               @db.Uuid
+  service_type           service_type
+  assigned_counselor_id  String?                              @db.Uuid
+  status                 service_conversation_status          @default(QUEUED)
+  priority               Int                                  @default(0)
+  subject                String?
+  privacy_mode           String                               @default("ANONYMOUS")
+  queued_at              DateTime                             @default(now())
+  assigned_at            DateTime?
+  started_at             DateTime?
+  last_message_at        DateTime?
+  last_activity_at       DateTime                             @default(now())
+  closed_at              DateTime?
+  closed_by              String?                              @db.Uuid
+  close_reason           String?
+  created_by             String                               @db.Uuid
+  reassignment_requested Boolean                              @default(false)
+  escalation_reason      String?
+  escalation_level       Int                                  @default(0)
+  retention_status       retention_status                     @default(ACTIVE)
+  archived_at            DateTime?
+  restricted_at          DateTime?
+  created_at             DateTime                             @default(now())
+  updated_at             DateTime
+  owner                  users                                @relation("service_conversation_owner", fields: [user_id], references: [id])
+  counselor              users?                               @relation("service_conversation_counselor", fields: [assigned_counselor_id], references: [id])
+  assignments            counselor_assignments[]
+  messages               service_messages[]
+  events                 conversation_events[]
+  reports                conversation_reports[]
+  blocks                 conversation_blocks[]
+  voice_uploads          conversation_voice_upload_sessions[]
+  voice_notes            conversation_voice_notes[]
+  preference             consultation_preferences?
+
+  @@index([user_id, created_at])
+  @@index([status, priority, queued_at])
+  @@index([assigned_counselor_id, status, last_activity_at])
+}
+
+model counselor_assignments {
+  id                  String                @id @db.Uuid
+  conversation_id     String                @db.Uuid
+  counselor_id        String                @db.Uuid
+  assigned_by         String                @db.Uuid
+  source              assignment_source
+  status              assignment_status     @default(ACTIVE)
+  assigned_at         DateTime              @default(now())
+  unassigned_at       DateTime?
+  unassignment_reason String?
+  conversation        service_conversations @relation(fields: [conversation_id], references: [id])
+  counselor           users                 @relation("counselor_assignment_counselor", fields: [counselor_id], references: [id])
+  assigner            users                 @relation("counselor_assignment_assigner", fields: [assigned_by], references: [id])
+
+  @@index([conversation_id, status])
+  @@index([counselor_id, status, assigned_at])
+}
+
+model service_messages {
+  id               String                    @id @db.Uuid
+  public_id        String                    @unique @default(dbgenerated("'msg_' || replace(gen_random_uuid()::text, '-', '')"))
+  conversation_id  String                    @db.Uuid
+  sender_user_id   String?                   @db.Uuid
+  sender_role      user_role
+  kind             service_message_kind      @default(TEXT)
+  content          String?
+  voice_note_id    String?                   @unique @db.Uuid
+  idempotency_key  String
+  status           service_message_status    @default(SENT)
+  redacted_at      DateTime?
+  redaction_reason String?
+  created_at       DateTime                  @default(now())
+  updated_at       DateTime
+  conversation     service_conversations     @relation(fields: [conversation_id], references: [id])
+  sender           users?                    @relation(fields: [sender_user_id], references: [id])
+  voice_note       conversation_voice_notes? @relation(fields: [voice_note_id], references: [id])
+  receipts         message_receipts[]
+  reports          conversation_reports[]
+
+  @@unique([conversation_id, sender_user_id, idempotency_key])
+  @@index([conversation_id, created_at, id])
+}
+
+model message_receipts {
+  id             String           @id @db.Uuid
+  message_id     String           @db.Uuid
+  participant_id String           @db.Uuid
+  delivered_at   DateTime?
+  read_at        DateTime?
+  created_at     DateTime         @default(now())
+  updated_at     DateTime
+  message        service_messages @relation(fields: [message_id], references: [id])
+  participant    users            @relation(fields: [participant_id], references: [id])
+
+  @@unique([message_id, participant_id])
+  @@index([participant_id, read_at])
+}
+
+model conversation_events {
+  id              String                @id @db.Uuid
+  conversation_id String                @db.Uuid
+  event_type      String
+  actor_user_id   String?               @db.Uuid
+  safe_metadata   Json?
+  created_at      DateTime              @default(now())
+  conversation    service_conversations @relation(fields: [conversation_id], references: [id])
+
+  @@index([conversation_id, created_at])
+}
+
+model conversation_reports {
+  id                String                @id @db.Uuid
+  public_id         String                @unique @default(dbgenerated("'rpt_' || replace(gen_random_uuid()::text, '-', '')"))
+  reporter_id       String                @db.Uuid
+  conversation_id   String                @db.Uuid
+  message_id        String?               @db.Uuid
+  reason            report_reason
+  description       String?
+  status            report_status         @default(SUBMITTED)
+  assigned_reviewer String?               @db.Uuid
+  reviewed_at       DateTime?
+  resolution        String?
+  created_at        DateTime              @default(now())
+  reporter          users                 @relation(fields: [reporter_id], references: [id])
+  conversation      service_conversations @relation(fields: [conversation_id], references: [id])
+  message           service_messages?     @relation(fields: [message_id], references: [id])
+
+  @@unique([reporter_id, conversation_id, message_id, reason])
+  @@index([status, created_at])
+}
+
+model conversation_blocks {
+  id              String                @id @db.Uuid
+  conversation_id String                @db.Uuid
+  user_id         String                @db.Uuid
+  counselor_id    String                @db.Uuid
+  reason          String?
+  is_active       Boolean               @default(true)
+  created_at      DateTime              @default(now())
+  lifted_at       DateTime?
+  conversation    service_conversations @relation(fields: [conversation_id], references: [id])
+  user            users                 @relation("conversation_block_user", fields: [user_id], references: [id])
+  counselor       users                 @relation("conversation_block_counselor", fields: [counselor_id], references: [id])
+
+  @@unique([user_id, counselor_id, is_active])
+  @@index([conversation_id, created_at])
+}
+
+model service_settings {
+  id                       String       @id @db.Uuid
+  service_type             service_type @unique
+  timezone                 String       @default("Asia/Jayapura")
+  active_days              Int[]        @default([1, 2, 3, 4, 5])
+  opens_at                 String       @default("08:00")
+  closes_at                String       @default("16:00")
+  is_active                Boolean      @default(true)
+  estimated_response_label String       @default("Ditinjau pada jam layanan")
+  max_active_per_counselor Int          @default(10)
+  created_at               DateTime     @default(now())
+  updated_at               DateTime
+}
+
+model consultation_preferences {
+  id                       String                       @id @db.Uuid
+  conversation_id          String                       @unique @db.Uuid
+  topic                    consultation_topic
+  assignment_mode          consultation_assignment_mode
+  region_id                String?                      @db.Uuid
+  facility_id              String?                      @db.Uuid
+  selected_counselor_id    String?                      @db.Uuid
+  recommended_counselor_id String?                      @db.Uuid
+  recommendation_reasons   Json?
+  allow_previous_counselor Boolean                      @default(false)
+  fallback_notice          String?
+  submission_key           String                       @unique
+  created_at               DateTime                     @default(now())
+  updated_at               DateTime
+  conversation             service_conversations        @relation(fields: [conversation_id], references: [id])
+  region                   regions?                     @relation(fields: [region_id], references: [id])
+  facility                 health_facilities?           @relation(fields: [facility_id], references: [id])
+  selected_counselor       users?                       @relation("consultation_preference_selected", fields: [selected_counselor_id], references: [id])
+  recommended_counselor    users?                       @relation("consultation_preference_recommended", fields: [recommended_counselor_id], references: [id])
+
+  @@index([region_id, facility_id])
+  @@index([assignment_mode, created_at])
+}
+
+model counselor_conflicts {
+  id           String    @id @db.Uuid
+  patient_id   String    @db.Uuid
+  counselor_id String    @db.Uuid
+  reason_code  String
+  is_active    Boolean   @default(true)
+  created_at   DateTime  @default(now())
+  resolved_at  DateTime?
+  patient      users     @relation("counselor_conflict_patient", fields: [patient_id], references: [id])
+  counselor    users     @relation("counselor_conflict_counselor", fields: [counselor_id], references: [id])
+
+  @@unique([patient_id, counselor_id, is_active])
+  @@index([counselor_id, is_active])
+}
+
+model conversation_voice_upload_sessions {
+  id               String                @id @db.Uuid
+  conversation_id  String                @db.Uuid
+  requested_by     String                @db.Uuid
+  storage_key      String                @unique
+  content_type     String
+  file_size_bytes  Int
+  duration_seconds Int
+  expires_at       DateTime
+  committed_at     DateTime?
+  created_at       DateTime              @default(now())
+  conversation     service_conversations @relation(fields: [conversation_id], references: [id])
+
+  @@index([requested_by, expires_at])
+}
+
+model conversation_voice_notes {
+  id               String                @id @db.Uuid
+  public_id        String                @unique @default(dbgenerated("'vcn_' || replace(gen_random_uuid()::text, '-', '')"))
+  conversation_id  String                @db.Uuid
+  uploaded_by      String                @db.Uuid
+  storage_key      String                @unique
+  content_type     String
+  file_size_bytes  Int
+  duration_seconds Int
+  created_at       DateTime              @default(now())
+  deleted_at       DateTime?
+  conversation     service_conversations @relation(fields: [conversation_id], references: [id])
+  message          service_messages?
+
+  @@index([conversation_id, created_at])
+}
+
+model complaint_tickets {
+  id                     String                                 @id @db.Uuid
+  public_id              String                                 @unique @default(dbgenerated("'tkt_' || replace(gen_random_uuid()::text, '-', '')"))
+  tracking_code          String                                 @unique
+  tracking_secret_hash   String
+  user_id                String?                                @db.Uuid
+  alias_snapshot         String?
+  category               complaint_category
+  subject                String
+  description            String
+  priority               Int                                    @default(0)
+  status                 complaint_status                       @default(SUBMITTED)
+  assigned_officer_id    String?                                @db.Uuid
+  facility_id            String?                                @db.Uuid
+  acknowledged_at        DateTime?
+  assigned_at            DateTime?
+  responded_at           DateTime?
+  resolved_at            DateTime?
+  closed_at              DateTime?
+  acknowledgement_due_at DateTime
+  response_due_at        DateTime
+  resolution_due_at      DateTime
+  escalation_level       Int                                    @default(0)
+  source                 String                                 @default("WEB")
+  privacy_level          String                                 @default("ANONYMOUS")
+  consented_at           DateTime
+  submission_key         String                                 @unique
+  retention_status       retention_status                       @default(ACTIVE)
+  archived_at            DateTime?
+  restricted_at          DateTime?
+  created_at             DateTime                               @default(now())
+  updated_at             DateTime
+  owner                  users?                                 @relation("complaint_owner", fields: [user_id], references: [id])
+  officer                users?                                 @relation("complaint_officer", fields: [assigned_officer_id], references: [id])
+  messages               complaint_messages[]
+  assignments            complaint_assignments[]
+  events                 complaint_events[]
+  attachment_uploads     complaint_attachment_upload_sessions[]
+  attachments            complaint_attachments[]
+
+  @@index([user_id, created_at])
+  @@index([status, priority, created_at])
+  @@index([assigned_officer_id, status])
+  @@index([resolution_due_at, status])
+}
+
+model complaint_messages {
+  id               String                 @id @db.Uuid
+  public_id        String                 @unique @default(dbgenerated("'cmsg_' || replace(gen_random_uuid()::text, '-', '')"))
+  ticket_id        String                 @db.Uuid
+  sender_user_id   String?                @db.Uuid
+  sender_role      user_role?
+  type             complaint_message_type
+  content          String
+  idempotency_key  String
+  redacted_at      DateTime?
+  redaction_reason String?
+  created_at       DateTime               @default(now())
+  ticket           complaint_tickets      @relation(fields: [ticket_id], references: [id])
+  sender           users?                 @relation(fields: [sender_user_id], references: [id])
+
+  @@unique([ticket_id, sender_user_id, idempotency_key])
+  @@index([ticket_id, created_at])
+}
+
+model complaint_assignments {
+  id                  String            @id @db.Uuid
+  ticket_id           String            @db.Uuid
+  officer_id          String            @db.Uuid
+  assigned_by         String            @db.Uuid
+  source              assignment_source
+  status              assignment_status @default(ACTIVE)
+  assigned_at         DateTime          @default(now())
+  unassigned_at       DateTime?
+  unassignment_reason String?
+  ticket              complaint_tickets @relation(fields: [ticket_id], references: [id])
+  officer             users             @relation("complaint_assignment_officer", fields: [officer_id], references: [id])
+  assigner            users             @relation("complaint_assignment_assigner", fields: [assigned_by], references: [id])
+
+  @@index([ticket_id, status])
+  @@index([officer_id, status])
+}
+
+model complaint_sla_configs {
+  id                           String              @id @db.Uuid
+  category                     complaint_category?
+  priority                     Int?
+  acknowledgement_minutes      Int
+  response_minutes             Int
+  resolution_minutes           Int
+  active_days                  Int[]               @default([1, 2, 3, 4, 5])
+  opens_at                     String              @default("08:00")
+  closes_at                    String              @default("16:00")
+  timezone                     String              @default("Asia/Jayapura")
+  escalation_threshold_minutes Int                 @default(60)
+  is_active                    Boolean             @default(true)
+  created_at                   DateTime            @default(now())
+  updated_at                   DateTime
+
+  @@index([category, priority, is_active])
+}
+
+model complaint_events {
+  id            String            @id @db.Uuid
+  ticket_id     String            @db.Uuid
+  event_type    String
+  actor_user_id String?           @db.Uuid
+  safe_metadata Json?
+  created_at    DateTime          @default(now())
+  ticket        complaint_tickets @relation(fields: [ticket_id], references: [id])
+
+  @@index([ticket_id, created_at])
+}
+
+model complaint_attachment_upload_sessions {
+  id              String            @id @db.Uuid
+  ticket_id       String            @db.Uuid
+  requested_by    String?           @db.Uuid
+  storage_key     String            @unique
+  content_type    String
+  file_size_bytes Int
+  expires_at      DateTime
+  committed_at    DateTime?
+  created_at      DateTime          @default(now())
+  ticket          complaint_tickets @relation(fields: [ticket_id], references: [id])
+
+  @@index([ticket_id, expires_at])
+}
+
+model complaint_attachments {
+  id                String            @id @db.Uuid
+  public_id         String            @unique @default(dbgenerated("'att_' || replace(gen_random_uuid()::text, '-', '')"))
+  ticket_id         String            @db.Uuid
+  uploaded_by       String?           @db.Uuid
+  storage_key       String            @unique
+  content_type      String
+  file_size_bytes   Int
+  quarantine_status String            @default("CLEAN")
+  created_at        DateTime          @default(now())
+  deleted_at        DateTime?
+  ticket            complaint_tickets @relation(fields: [ticket_id], references: [id])
+
+  @@index([ticket_id, created_at])
+}
+
+model sensitive_access_audits {
+  id                 String     @id @db.Uuid
+  actor_user_id      String?    @db.Uuid
+  actor_role         user_role?
+  resource_type      String
+  resource_public_id String
+  action             String
+  result             String
+  correlation_id     String
+  reason             String?
+  safe_metadata      Json?
+  created_at         DateTime   @default(now())
+  actor              users?     @relation(fields: [actor_user_id], references: [id])
+
+  @@index([resource_type, resource_public_id, created_at])
+  @@index([actor_user_id, created_at])
+}
+
+model portal_contents {
+  id                 String              @id @db.Uuid
+  section            String
+  title              String
+  summary            String              @default("")
+  link_url           String?
+  media_url          String?
+  article_id         String?             @db.Uuid
+  video_id           String?             @db.Uuid
+  publication_status publication_status  @default(DRAFT)
+  display_order      Int                 @default(1)
+  created_by         String?             @db.Uuid
+  updated_by         String?             @db.Uuid
+  created_at         DateTime            @default(now())
+  updated_at         DateTime            @default(now())
+  article            education_articles? @relation(fields: [article_id], references: [id])
+  video              education_videos?   @relation(fields: [video_id], references: [id])
+  creator            users?              @relation("portal_content_created_by", fields: [created_by], references: [id])
+  updater            users?              @relation("portal_content_updated_by", fields: [updated_by], references: [id])
+
+  @@index([section, publication_status, display_order])
+  @@index([article_id])
+  @@index([video_id])
+}
+
+enum service_type {
+  COUNSELOR
+  GENERAL_SUPPORT
+}
+
+enum consultation_topic {
+  HEALTH_CONCERN
+  SERVICE_INFORMATION
+  EMOTIONAL_SUPPORT
+  MEDICATION_OR_THERAPY
+  SERVICE_ACCESS
+  OTHER
+}
+
+enum consultation_assignment_mode {
+  RECOMMENDED
+  SELECTED
+  FASTEST
+  GENERAL_QUEUE
+}
+
+enum service_conversation_status {
+  DRAFT
+  QUEUED
+  ASSIGNED
+  ACTIVE
+  WAITING_USER
+  WAITING_COUNSELOR
+  CLOSED
+  CANCELLED
+  ESCALATED
+}
+
+enum assignment_source {
+  MANUAL
+  SELF_CLAIM
+  SYSTEM
+}
+
+enum assignment_status {
+  ACTIVE
+  ENDED
+}
+
+enum service_message_kind {
+  TEXT
+  VOICE_NOTE
+  SYSTEM_EVENT
+}
+
+enum service_message_status {
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  REDACTED
+}
+
+enum report_reason {
+  SPAM
+  HARASSMENT
+  THREAT
+  INAPPROPRIATE_CONTENT
+  PRIVACY_VIOLATION
+  OTHER
+}
+
+enum report_status {
+  SUBMITTED
+  IN_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+enum complaint_category {
+  SERVICE
+  ACCESS
+  PRIVACY
+  APPLICATION
+  FACILITY
+  OTHER
+}
+
+enum complaint_status {
+  SUBMITTED
+  ACKNOWLEDGED
+  ASSIGNED
+  IN_REVIEW
+  WAITING_USER
+  RESOLVED
+  CLOSED
+  REJECTED
+  ESCALATED
+}
+
+enum complaint_message_type {
+  PUBLIC_REPLY
+  INTERNAL_NOTE
+  SYSTEM_EVENT
+}
+
+enum retention_status {
+  ACTIVE
+  ARCHIVED
+  RESTRICTED
+  REDACTED
+  LEGAL_HOLD
 }

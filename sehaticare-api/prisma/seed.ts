@@ -18,6 +18,7 @@ async function main() {
       role: 'ADMIN',
       full_name: 'Admin SEHATiCare',
       is_active: true,
+      is_superadmin: true,
       password_hash,
       updated_at: now
     },
@@ -27,6 +28,29 @@ async function main() {
       full_name: 'Admin SEHATiCare',
       role: 'ADMIN',
       is_active: true,
+      is_superadmin: true,
+      password_hash,
+      updated_at: now
+    }
+  });
+
+  const regularAdmin = await prisma.users.upsert({
+    where: { email: 'regular-admin-test@sehaticare.local' },
+    update: {
+      role: 'ADMIN',
+      full_name: 'Regular Admin Test',
+      is_active: true,
+      is_superadmin: false,
+      password_hash,
+      updated_at: now
+    },
+    create: {
+      id: randomUUID(),
+      email: 'regular-admin-test@sehaticare.local',
+      full_name: 'Regular Admin Test',
+      role: 'ADMIN',
+      is_active: true,
+      is_superadmin: false,
       password_hash,
       updated_at: now
     }
@@ -162,7 +186,7 @@ async function main() {
 
 main()
   .then(() => {
-    console.log('Seed completed');
+    console.log('Seed completed: 1 superadmin, 1 regular admin, 1 verified doctor, 1 patient, 1 education article');
   })
   .catch(() => {
     console.error('Seed failed; review sanitized application logs for details');

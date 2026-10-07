@@ -157,3 +157,37 @@ export function getPatientCompanion(token: string) {
     { token }
   );
 }
+
+export interface StartCompanionConversationResponse {
+  conversation_public_id: string;
+  is_reused: boolean;
+  routed_to_companion: boolean;
+  status: string;
+}
+
+export function startCompanionConversation(
+  token: string,
+  body?: { initial_message?: string; submission_key?: string }
+) {
+  return apiFetch<StartCompanionConversationResponse>(
+    '/patient/companion/start-conversation',
+    {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    },
+    { token }
+  );
+}
+
+export function getPatientActiveCompanionConversation(token: string) {
+  return apiFetch<{
+    has_active_conversation: boolean;
+    conversation_public_id: string | null;
+    status: string | null;
+  }>(
+    '/patient/companion/active-conversation',
+    {},
+    { token }
+  );
+}
+

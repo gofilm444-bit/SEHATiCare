@@ -27,6 +27,8 @@ type Assignment = {
   subject: string | null;
   assigned_at: string | null;
   last_activity_at: string;
+  assignment_source?: string;
+  is_longitudinal?: boolean;
 };
 
 type OutreachCase = {
@@ -52,6 +54,7 @@ type QueueItem = {
   priority: number;
   queued_at: string;
   last_activity_at: string;
+  assignment_source?: string;
 };
 
 function useApi() {
@@ -198,6 +201,11 @@ export function CompanionAssignmentsPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <strong>{item.subject || 'Pendampingan privat'}</strong>
                       <StatusBadge variant="neutral">{item.status}</StatusBadge>
+                      {item.is_longitudinal ? (
+                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                          Pasien Dampingan
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-1 text-sm text-slate-500">
                       Ditugaskan{' '}
@@ -987,7 +995,18 @@ export function AdminProfessionalAssignmentsPage() {
                 <Card key={item.public_id}>
                   <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-center">
                     <div className="min-w-0 flex-1">
-                      <strong>Sesi menunggu pendamping</strong>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong>Sesi menunggu pendamping</strong>
+                        {item.assignment_source ? (
+                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                            {item.assignment_source === 'LONGITUDINAL'
+                              ? 'Pendamping Tetap'
+                              : item.assignment_source === 'SELF_CLAIM'
+                              ? 'Klaim Mandiri'
+                              : 'Penugasan Manual'}
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="text-sm text-slate-500">
                         Masuk {new Date(item.queued_at).toLocaleString('id-ID')} · Prioritas{' '}
                         {item.priority}

@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   getPatientCompanion,
   PatientActiveCompanionResponse,
+  startCompanionConversation,
+  getPatientActiveCompanionConversation,
 } from '../api/companionAssignments';
 import { consultationApi, ConsultationOverviewItem } from '../api/consultations';
 import { Button, buttonClassName } from '../components/ui/button';
@@ -29,8 +31,47 @@ export function PatientDashboard() {
   const [error, setError] = useState('');
   const [companionData, setCompanionData] = useState<PatientActiveCompanionResponse | null>(null);
   const [loadingCompanion, setLoadingCompanion] = useState(true);
+  const [contactingCompanion, setContactingCompanion] = useState(false);
+  const [companionActionError, setCompanionActionError] = useState('');
 
   const auth = useMemo(() => ({ token, onUnauthorized: handleUnauthorized }), [handleUnauthorized, token]);
+
+  const handleContactCompanion = async () => {
+    if (!token) return;
+    setContactingCompanion(true);
+    setCompanionActionError('');
+    try {
+      const activeRes = await getPatientActiveCompanionConversation(token);
+      if (activeRes.has_active_conversation && activeRes.conversation_public_id) {
+        nav(`/patient/consultations/${activeRes.conversation_public_id}`);
+        return;
+      }
+      const res = await startCompanionConversation(token, {
+        initial_message: 'Halo, saya ingin memulai sesi pendampingan.'
+      });
+      nav(`/patient/consultations/${res.conversation_public_id}`);
+    } catch (err: any) {
+      setCompanionActionError(err.message || 'Gagal menghubungkan ke pendamping. Silakan coba lagi.');
+    } finally {
+      setContactingCompanion(false);
+    }
+  };
+
+  const handleStartCompanionSupport = async () => {
+    if (!token) return;
+    setContactingCompanion(true);
+    setCompanionActionError('');
+    try {
+      const res = await startCompanionConversation(token, {
+        initial_message: 'Halo, saya ingin mengajukan pendampingan layanan.'
+      });
+      nav(`/patient/consultations/${res.conversation_public_id}`);
+    } catch (err: any) {
+      setCompanionActionError(err.message || 'Gagal memulai pendampingan. Silakan coba lagi.');
+    } finally {
+      setContactingCompanion(false);
+    }
+  };
 
   useEffect(() => {
     void consultationApi
@@ -140,11 +181,21 @@ export function PatientDashboard() {
                     </p>
                   </div>
                 </div>
+                <div className="flex shrink-0 items-center">
+                  <Button
+                    id="contact-companion-btn"
+                    onClick={handleContactCompanion}
+                    disabled={contactingCompanion}
+                  >
+                    <Icon name="chat" />
+                    {contactingCompanion ? 'Menghubungkan…' : 'Hubungi Pendamping'}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ) : (
             <Card className="border-dashed bg-slate-50/60">
-              <CardContent className="p-5">
+              <CardContent className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center">
                 <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:text-left">
                   <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-200 text-slate-600">
                     <Icon name="users" className="h-5 w-5" />
@@ -158,9 +209,24 @@ export function PatientDashboard() {
                     </p>
                   </div>
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  id="start-companion-support-btn"
+                  onClick={handleStartCompanionSupport}
+                  disabled={contactingCompanion}
+                >
+                  <Icon name="chat" />
+                  {contactingCompanion ? 'Memproses…' : 'Mulai Pendampingan'}
+                </Button>
               </CardContent>
             </Card>
           )}
+          {companionActionError ? (
+            <p role="alert" className="mt-2 text-xs text-rose-600">
+              {companionActionError}
+            </p>
+          ) : null}
         </div>
       </section>
 

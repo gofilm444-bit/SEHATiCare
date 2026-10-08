@@ -235,3 +235,15 @@ export async function revokeRefreshToken(refreshToken: string) {
     data: { revoked_at: new Date() }
   });
 }
+
+export async function verifyReauthPassword(userId: string, password: string): Promise<boolean> {
+  const user = await prisma.users.findUnique({
+    where: { id: userId },
+    select: { password_hash: true, is_active: true }
+  });
+  if (!user || !user.is_active || !user.password_hash) {
+    await bcrypt.compare(password, '$2b$12$C6UzMDM.H6dfI/f/IKcEe.5YxZkYQpJwZ0fE5xQWQ9tTQO0oYdI0C');
+    return false;
+  }
+  return bcrypt.compare(password, user.password_hash);
+}

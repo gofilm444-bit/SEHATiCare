@@ -28,6 +28,7 @@ import hivCareRoutes from './modules/care/hivCare.routes';
 import artCareRoutes from './modules/care/artCare.routes';
 import careSignalsRoutes from './modules/care/careSignals.routes';
 import serviceNavigationRoutes from './modules/care/serviceNavigation.routes';
+import privacyPreferencesRoutes from './modules/privacy/privacyPreferences.routes';
 import { env } from './config/env';
 import { isPrismaConnectionError } from './db/prismaErrors';
 import { ZodError } from 'zod';
@@ -166,6 +167,7 @@ export async function buildApp() {
 
   app.register(authRoutes, { prefix: '/auth' });
   app.register(accountRoutes, { prefix: '/account' });
+  app.register(privacyPreferencesRoutes);
   app.register(publicContentRoutes, { prefix: '/public' });
   app.register(contentAdminRoutes, { prefix: '/admin/content' });
   app.register(healthPlanningRoutes);

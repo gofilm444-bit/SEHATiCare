@@ -8,8 +8,11 @@ import {
   requestOtp,
   revokeRefreshToken,
   rotateRefreshToken,
-  verifyOtp
+  verifyOtp,
+  verifyReauthPassword
 } from './auth.service';
+import { audit } from '../../utils/auditEvents';
+import { prisma } from '../../db/prisma';
 import { anonymousRegistrationSchema, recoverySchema } from '../account/account.validators';
 import { recoverAnonymous, registerAnonymous } from '../account/account.service';
 import { maskLoginId } from '../account/identity';
@@ -360,6 +363,67 @@ export default async function authRoutes(fastify: FastifyInstance) {
       if (refreshToken) await revokeRefreshToken(refreshToken);
       clearSessionCookies(reply);
       return reply.status(204).send();
+    }
+  );
+
+  fastify.post(
+    '/re-authenticate',
+    {
+      preHandler: [authGuard],
+      config: {
+        rateLimit: {
+          ...sensitiveRateLimits.reauth,
+          keyGenerator: (request) => `${request.ip}:${request.user?.userId ?? 'anon'}`
+        }
+      },
+      schema: {
+        tags: ['Auth'],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          properties: { password: { type: 'string', minLength: 1 } },
+          required: ['password'],
+          additionalProperties: false
+        },
+        response: {
+          ...standardErrorResponses,
+          200: {
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              reauthenticated_at: { type: 'string', format: 'date-time' },
+              expires_in_seconds: { type: 'number' }
+            },
+            required: ['ok', 'reauthenticated_at', 'expires_in_seconds']
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const body = request.body as { password?: string } | undefined;
+      if (!body?.password || typeof body.password !== 'string') {
+        return reply.status(400).send({ message: 'Password is required' });
+      }
+      const isValid = await verifyReauthPassword(request.user!.userId, body.password);
+      if (!isValid) {
+        await audit.log(prisma, {
+          actorUserId: request.user!.userId,
+          actorRole: request.user!.role,
+          action: 'PRIVACY_REAUTH_FAILED'
+        });
+        return reply.status(401).send({ message: 'Kata sandi tidak valid' });
+      }
+      const now = new Date();
+      await audit.log(prisma, {
+        actorUserId: request.user!.userId,
+        actorRole: request.user!.role,
+        action: 'PRIVACY_REAUTH_SUCCESS'
+      });
+      return reply.send({
+        ok: true,
+        reauthenticated_at: now.toISOString(),
+        expires_in_seconds: 300
+      });
     }
   );
 }

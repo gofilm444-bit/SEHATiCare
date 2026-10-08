@@ -604,6 +604,7 @@ model users {
   care_referral_consents                                  care_referral_consents[]
   care_referral_events                                    care_referral_events[]
   care_referral_companion_shares                          care_referral_companion_shares[]
+  privacy_preferences                                    user_privacy_preferences?
 }
 
 model professional_outreach_cases {
@@ -2083,4 +2084,17 @@ model care_referral_companion_shares {
   patient               users          @relation(fields: [patient_id], references: [id])
 
   @@index([patient_id, is_enabled])
+}
+
+model user_privacy_preferences {
+  id                       String   @id @default(uuid()) @db.Uuid
+  user_id                  String   @unique @db.Uuid
+  lock_on_background       Boolean  @default(true)
+  auto_lock_minutes        Int?     @default(5)
+  require_reauth_to_unlock Boolean  @default(false)
+  discreet_page_titles     Boolean  @default(true)
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
+
+  user                     users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 }

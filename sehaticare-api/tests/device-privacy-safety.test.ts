@@ -155,7 +155,7 @@ test('AG-09: Device-Level Safety & Privacy Foundation API', async () => {
       assert.equal(typeof (meta as any).token, 'undefined');
     }
 
-    // 8. POST /auth/re-authenticate with correct password succeeds
+    // 8. POST /auth/re-authenticate with correct password succeeds and returns cryptographic proof
     const reauthSuccess = await app.inject({
       method: 'POST',
       url: '/auth/re-authenticate',
@@ -167,6 +167,35 @@ test('AG-09: Device-Level Safety & Privacy Foundation API', async () => {
     assert.equal(reauthData.ok, true);
     assert.ok(reauthData.reauthenticated_at);
     assert.equal(reauthData.expires_in_seconds, 300);
+    assert.ok(typeof reauthData.proof_token === 'string' && reauthData.proof_token.length > 20);
+
+    // 8b. Cryptographic proof is verified for current user
+    const verifySuccess = await app.inject({
+      method: 'POST',
+      url: '/auth/verify-reauth',
+      headers: { authorization: `Bearer ${tokenA}` },
+      payload: { proof_token: reauthData.proof_token }
+    });
+    assert.equal(verifySuccess.statusCode, 200);
+    assert.equal(verifySuccess.json().valid, true);
+
+    // 8c. Proof cannot be reused by another account (User B rejected with 403)
+    const verifyCrossUser = await app.inject({
+      method: 'POST',
+      url: '/auth/verify-reauth',
+      headers: { authorization: `Bearer ${tokenB}` },
+      payload: { proof_token: reauthData.proof_token }
+    });
+    assert.equal(verifyCrossUser.statusCode, 403);
+
+    // 8d. Tampered or invalid proof rejected with 401
+    const verifyInvalid = await app.inject({
+      method: 'POST',
+      url: '/auth/verify-reauth',
+      headers: { authorization: `Bearer ${tokenA}` },
+      payload: { proof_token: 'tampered.jwt.token' }
+    });
+    assert.equal(verifyInvalid.statusCode, 401);
 
     // 9. POST /auth/re-authenticate with wrong password fails
     const reauthFail = await app.inject({

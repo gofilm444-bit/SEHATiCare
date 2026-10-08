@@ -26,7 +26,9 @@ vi.mock('../../context/AuthContext', () => ({
     anonymousLogin: vi.fn(),
     logout: mockLogout,
     handleUnauthorized: vi.fn(),
-    isPrivacyLocked: () => sessionStorage.getItem('sehaticare_privacy_locked') === '1',
+    isPrivacyLocked: () =>
+      localStorage.getItem('sehaticare_privacy_locked') === '1' ||
+      sessionStorage.getItem('sehaticare_privacy_locked') === '1',
     setPrivacyLock: mockSetPrivacyLock,
     clearPrivacyLock: mockClearPrivacyLock
   })
@@ -147,7 +149,7 @@ describe('AG-09 Quick Exit, BFCache & Cross-Tab Safety', () => {
   });
 
   test('BFCache pageshow: persisted event triggers privacy protection and redirection', () => {
-    sessionStorage.setItem('sehaticare_privacy_locked', '1');
+    localStorage.setItem('sehaticare_privacy_locked', '1');
 
     render(
       <MemoryRouter>
@@ -162,5 +164,58 @@ describe('AG-09 Quick Exit, BFCache & Cross-Tab Safety', () => {
     window.dispatchEvent(event);
 
     expect(locationReplaceSpy).toHaveBeenCalledWith('/');
+  });
+
+  test('Offline logout failure: privacy lock marker in localStorage prevents automatic session resurrection in newly opened tab', async () => {
+    // 1. Simulate Quick Exit occurred in another tab, setting browser-wide localStorage marker
+    localStorage.setItem('sehaticare_privacy_locked', '1');
+
+    // 2. Newly opened tab has clean sessionStorage (empty)
+    expect(sessionStorage.getItem('sehaticare_privacy_locked')).toBeNull();
+
+    // 3. Browser-wide privacy check still detects the lock
+    const { isPrivacyLocked } = await import('../../lib/privacyLockStorage');
+    expect(isPrivacyLocked()).toBe(true);
+  });
+
+  test('Cross-tab storage event: triggers immediate concealment and logout fallback when BroadcastChannel is unsupported', async () => {
+    render(
+      <MemoryRouter>
+        <PrivacyProvider>
+          <TestQuickExitConsumer />
+        </PrivacyProvider>
+      </MemoryRouter>
+    );
+
+    // Simulate cross-tab storage event from another window
+    const storageEvent = new StorageEvent('storage', {
+      key: 'sehaticare_privacy_locked',
+      newValue: '1'
+    });
+    window.dispatchEvent(storageEvent);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('shield-flag').textContent).toBe('SHIELDED');
+    });
+    expect(mockLogout).toHaveBeenCalledWith(false);
+    expect(locationReplaceSpy).toHaveBeenCalledWith('/');
+  });
+
+  test('Privacy lock marker is cleared only on explicit login, never on automatic refresh or public browsing', async () => {
+    const { setPrivacyLockMarker, clearPrivacyLockMarker, isPrivacyLocked } = await import(
+      '../../lib/privacyLockStorage'
+    );
+
+    // 1. Set marker on quick exit or logout
+    setPrivacyLockMarker();
+    expect(isPrivacyLocked()).toBe(true);
+    expect(localStorage.getItem('sehaticare_privacy_locked')).toBe('1');
+    expect(sessionStorage.getItem('sehaticare_privacy_locked')).toBe('1');
+
+    // 2. Explicit login clears marker
+    clearPrivacyLockMarker();
+    expect(isPrivacyLocked()).toBe(false);
+    expect(localStorage.getItem('sehaticare_privacy_locked')).toBeNull();
+    expect(sessionStorage.getItem('sehaticare_privacy_locked')).toBeNull();
   });
 });

@@ -69,6 +69,27 @@ describe('AG-09 Privacy Shield Foundation', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
+      if (url.includes('/auth/me')) {
+        return new Response(JSON.stringify(mockUser), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/auth/re-authenticate')) {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.password === 'correct-secret-123') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              reauthenticated_at: new Date().toISOString(),
+              expires_in_seconds: 300,
+              proof_token: 'signed.jwt.proof.token.xyz'
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return new Response(
+          JSON.stringify({ message: 'Kata sandi tidak valid' }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
       return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });
     });
   });
@@ -119,7 +140,9 @@ describe('AG-09 Privacy Shield Foundation', () => {
     // Unlocking with "Lanjutkan" restores view
     const continueBtn = screen.getByText('Lanjutkan');
     fireEvent.click(continueBtn);
-    expect(screen.getByTestId('shield-state').textContent).toBe('INACTIVE');
+    await waitFor(() => {
+      expect(screen.getByTestId('shield-state').textContent).toBe('INACTIVE');
+    });
   });
 
   test('Re-authentication required: wrong password rejected, correct password unlocks', async () => {
@@ -142,7 +165,12 @@ describe('AG-09 Privacy Shield Foundation', () => {
         const body = JSON.parse(String(init?.body ?? '{}'));
         if (body.password === 'correct-secret-123') {
           return new Response(
-            JSON.stringify({ ok: true, reauthenticated_at: new Date().toISOString(), expires_in_seconds: 300 }),
+            JSON.stringify({
+              ok: true,
+              reauthenticated_at: new Date().toISOString(),
+              expires_in_seconds: 300,
+              proof_token: 'signed.jwt.proof.token.xyz'
+            }),
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           );
         }
@@ -191,6 +219,45 @@ describe('AG-09 Privacy Shield Foundation', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('shield-state').textContent).toBe('INACTIVE');
+    });
+
+    // Reauth proof is kept in RAM only: NEVER persisted to localStorage or sessionStorage
+    expect(localStorage.getItem('proof_token')).toBeNull();
+    expect(localStorage.getItem('reauthProof')).toBeNull();
+    expect(sessionStorage.getItem('proof_token')).toBeNull();
+    expect(sessionStorage.getItem('reauthProof')).toBeNull();
+  });
+
+  test('Stale session during shield: if session is revoked, unlocking does not reveal private UI and triggers logout', async () => {
+    // Session revoked on backend while shield was up
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/auth/me')) {
+        return new Response(JSON.stringify({ message: 'Session expired' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+
+    render(
+      <MemoryRouter>
+        <PrivacyProvider>
+          <TestShieldConsumer />
+        </PrivacyProvider>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByText('Buka Mode Privat'));
+    expect(screen.getByTestId('shield-state').textContent).toBe('ACTIVE');
+
+    // Attempting to unlock while session is revoked
+    fireEvent.click(screen.getByText('Lanjutkan'));
+
+    await waitFor(() => {
+      // Must trigger logout rather than exposing stale private dashboard
+      expect(mockAuthContext.logout).toHaveBeenCalledWith(true);
     });
   });
 

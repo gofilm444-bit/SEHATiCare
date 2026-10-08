@@ -749,3 +749,583 @@ test('AG-07: Care Signals, Follow-Up Overdue & Human Escalation Foundation', asy
   });
   assert.equal(patSummaryRes.statusCode, 403);
 });
+
+test('AG-07A: Care Signal Dedupe, Metadata Whitelist, Unassigned Routing & Escalation Isolation Audit', async () => {
+  const app = await buildApp();
+  const marker = randomUUID().slice(0, 8);
+  const now = new Date();
+  const passwordHash = await bcrypt.hash('Secure-test-2026!', 12);
+
+  // Setup Region & Facility
+  let region = await prisma.regions.findFirst();
+  if (!region) {
+    region = await prisma.regions.create({
+      data: {
+        id: randomUUID(),
+        name: `Papua Audit ${marker}`,
+        code: `REG-AUDIT-${marker}`,
+        type: 'PROVINCE',
+        updated_at: now
+      }
+    });
+  }
+
+  const facility = await prisma.health_facilities.create({
+    data: {
+      id: randomUUID(),
+      name: `Puskesmas Audit ${marker}`,
+      facility_type: 'PUSKESMAS',
+      region_id: region.id,
+      address: 'Jl. Sehati Sentani No. 9',
+      service_hours: '24 Jam',
+      verification_status: 'VERIFIED',
+      source_name: 'Dinkes',
+      is_active: true,
+      updated_at: now
+    }
+  });
+
+  // Users: Admin, Patient 1 (has doctor A), Patient 2 (unassigned), Doctor A, Doctor B (unrelated), Companion 1
+  const adminId = randomUUID();
+  const patient1Id = randomUUID();
+  const patient2Id = randomUUID(); // unassigned clinical request patient
+  const doctorAId = randomUUID();
+  const doctorBId = randomUUID(); // unrelated doctor
+  const companion1Id = randomUUID();
+
+  await prisma.users.createMany({
+    data: [
+      { id: adminId, email: `admin-a7a-${marker}@test.local`, full_name: 'Admin A7A', role: 'ADMIN', password_hash: passwordHash, updated_at: now },
+      { id: patient1Id, email: `pat1-a7a-${marker}@test.local`, full_name: 'Pasien 1 A7A', display_alias: 'Pelita Fajar', role: 'PASIEN', password_hash: passwordHash, updated_at: now },
+      { id: patient2Id, email: `pat2-a7a-${marker}@test.local`, full_name: 'Pasien 2 A7A', display_alias: 'Bintang Timur', role: 'PASIEN', password_hash: passwordHash, updated_at: now },
+      { id: doctorAId, email: `docA-a7a-${marker}@test.local`, full_name: 'Dr. A A7A', display_alias: 'Dr. A', role: 'DOKTER', password_hash: passwordHash, updated_at: now },
+      { id: doctorBId, email: `docB-a7a-${marker}@test.local`, full_name: 'Dr. B A7A', display_alias: 'Dr. B', role: 'DOKTER', password_hash: passwordHash, updated_at: now },
+      { id: companion1Id, email: `comp1-a7a-${marker}@test.local`, full_name: 'Pendamping 1 A7A', display_alias: 'Pendamping 1', role: 'COUNSELOR', password_hash: passwordHash, updated_at: now }
+    ]
+  });
+
+  // Profiles
+  await prisma.doctor_profiles.createMany({
+    data: [
+      { user_id: doctorAId, verification_status: 'VERIFIED', verified_at: now, puskesmas_name: 'RSUD Jayapura', str_number: `STR-A7A-${marker}`, updated_at: now },
+      { user_id: doctorBId, verification_status: 'VERIFIED', verified_at: now, puskesmas_name: 'RS Sentani', str_number: `STR-A7B-${marker}`, updated_at: now }
+    ]
+  });
+
+  await prisma.counselor_profiles.create({
+    data: {
+      user_id: companion1Id,
+      facility_id: facility.id,
+      professional_name: 'Pendamping A7A',
+      profession: 'Pendamping Komunitas',
+      service_role: 'COMPANION',
+      verification_status: 'VERIFIED',
+      permission_enabled: true,
+      verified_at: now,
+      is_active: true,
+      updated_at: now
+    }
+  });
+
+  // Companion assignment: Patient 1 is assigned to Companion 1
+  // Patient 2 has NO companion assignment
+  await prisma.patient_companion_assignments.create({
+    data: {
+      id: randomUUID(),
+      patient_user_id: patient1Id,
+      companion_user_id: companion1Id,
+      facility_id: facility.id,
+      assigned_by_user_id: adminId,
+      status: 'ACTIVE',
+      started_at: now
+    }
+  });
+
+  // Doctor A has clinical consultation with Patient 1
+  // Neither Doctor A nor Doctor B has any clinical relationship with Patient 2
+  await prisma.consultations.create({
+    data: {
+      id: randomUUID(),
+      patient_id: patient1Id,
+      assignedDoctorId: doctorAId,
+      status: 'DOKTER_AKTIF',
+      initial_complaint: 'Evaluasi ART',
+      opened_at: now,
+      doctor_joined_at: now,
+      updated_at: now
+    }
+  });
+
+  // Enable follow-up and refill consents for Patient 1
+  await prisma.care_follow_up_support_consents.create({
+    data: {
+      id: randomUUID(),
+      patient_id: patient1Id,
+      is_consent_enabled: true,
+      consented_at: now
+    }
+  });
+
+  await prisma.art_refill_support_consents.create({
+    data: {
+      id: randomUUID(),
+      patient_user_id: patient1Id,
+      is_consent_enabled: true,
+      consented_at: now
+    }
+  });
+
+  const adminToken = app.auth.signAccessToken({ userId: adminId, role: 'ADMIN', sessionVersion: 0 });
+  const patient1Token = app.auth.signAccessToken({ userId: patient1Id, role: 'PASIEN', sessionVersion: 0 });
+  const patient2Token = app.auth.signAccessToken({ userId: patient2Id, role: 'PASIEN', sessionVersion: 0 });
+  const doctorAToken = app.auth.signAccessToken({ userId: doctorAId, role: 'DOKTER', sessionVersion: 0 });
+  const doctorBToken = app.auth.signAccessToken({ userId: doctorBId, role: 'DOKTER', sessionVersion: 0 });
+  const companion1Token = app.auth.signAccessToken({ userId: companion1Id, role: 'COUNSELOR', sessionVersion: 0 });
+
+  // =========================================================================
+  // 1. ACTIVE SIGNAL DEDUPE AUDIT (OPEN + ACKNOWLEDGED)
+  // =========================================================================
+
+  // A. Overdue Control Schedule Dedupe across OPEN and ACKNOWLEDGED
+  const pastScheduleDate = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000); // 4 days ago
+  const overdueSchedule = await prisma.control_schedules.create({
+    data: {
+      id: randomUUID(),
+      user_id: patient1Id,
+      facility_id: facility.id,
+      starts_at: pastScheduleDate,
+      timezone: 'Asia/Jayapura',
+      control_type: 'KONTROL_RUTIN',
+      status: 'SCHEDULED',
+      source: 'USER',
+      created_by: patient1Id,
+      updated_by: patient1Id,
+      updated_at: now
+    }
+  });
+
+  // Step 1: Initial evaluation -> Creates ONE OPEN signal
+  const { syncControlScheduleSignal, evaluateOverdueControlSchedules, syncSevereSideEffectSignal, syncRefillStockSignal } = await import(
+    '../src/modules/care/careSignals.service'
+  );
+
+  const signal1 = await syncControlScheduleSignal(overdueSchedule.id);
+  assert.ok(signal1);
+  assert.equal(signal1.status, 'OPEN');
+
+  // Verify DB count
+  let scheduleSignals = await prisma.care_signals.findMany({
+    where: { source_type: 'CONTROL_SCHEDULE', source_id: overdueSchedule.id }
+  });
+  assert.equal(scheduleSignals.length, 1);
+
+  // Step 2: Doctor A acknowledges the signal
+  const ackRes = await app.inject({
+    method: 'PATCH',
+    url: `/doctor/care-signals/${signal1.public_id}/status`,
+    headers: { authorization: `Bearer ${doctorAToken}` },
+    payload: { status: 'ACKNOWLEDGED' }
+  });
+  assert.equal(ackRes.statusCode, 200);
+  assert.equal(ackRes.json().status, 'ACKNOWLEDGED');
+
+  // Step 3: Run evaluator repeatedly while signal is ACKNOWLEDGED
+  await syncControlScheduleSignal(overdueSchedule.id);
+  await syncControlScheduleSignal(overdueSchedule.id);
+  await evaluateOverdueControlSchedules();
+
+  // Invariant check: MUST remain exactly ONE signal, and status must remain ACKNOWLEDGED
+  scheduleSignals = await prisma.care_signals.findMany({
+    where: { source_type: 'CONTROL_SCHEDULE', source_id: overdueSchedule.id }
+  });
+  assert.equal(scheduleSignals.length, 1, 'Repeated evaluation must not create a duplicate signal while ACKNOWLEDGED');
+  assert.equal(scheduleSignals[0].status, 'ACKNOWLEDGED');
+
+  // Step 4: Resolve the schedule (e.g. completed) -> signal resolves
+  await prisma.control_schedules.update({
+    where: { id: overdueSchedule.id },
+    data: { status: 'COMPLETED', completed_at: new Date() }
+  });
+  await syncControlScheduleSignal(overdueSchedule.id);
+
+  scheduleSignals = await prisma.care_signals.findMany({
+    where: { source_type: 'CONTROL_SCHEDULE', source_id: overdueSchedule.id }
+  });
+  assert.equal(scheduleSignals.length, 1);
+  assert.equal(scheduleSignals[0].status, 'RESOLVED');
+
+  // Step 5: A genuinely new schedule later creates a new distinct historical signal
+  const newSchedule = await prisma.control_schedules.create({
+    data: {
+      id: randomUUID(),
+      user_id: patient1Id,
+      facility_id: facility.id,
+      starts_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      timezone: 'Asia/Jayapura',
+      control_type: 'KONTROL_RUTIN',
+      status: 'SCHEDULED',
+      source: 'USER',
+      created_by: patient1Id,
+      updated_by: patient1Id,
+      updated_at: now
+    }
+  });
+
+  const signal2 = await syncControlScheduleSignal(newSchedule.id);
+  assert.ok(signal2);
+  assert.equal(signal2.status, 'OPEN');
+  assert.notEqual(signal2.id, signal1.id);
+
+  // Total signals for patient1 now includes historical resolved + new open
+  const allPatient1ScheduleSignals = await prisma.care_signals.findMany({
+    where: { patient_id: patient1Id, source_type: 'CONTROL_SCHEDULE' }
+  });
+  assert.equal(allPatient1ScheduleSignals.length, 2);
+
+  // B. Severe Side Effect Dedupe across OPEN and ACKNOWLEDGED
+  const severeEntry = await prisma.art_side_effect_entries.create({
+    data: {
+      id: randomUUID(),
+      patient_user_id: patient1Id,
+      symptom_name: 'Sesak napas akut',
+      severity: 'SEVERE',
+      status: 'ACTIVE'
+    }
+  });
+
+  const seSignal = await syncSevereSideEffectSignal(severeEntry.id);
+  assert.ok(seSignal);
+  assert.equal(seSignal.status, 'OPEN');
+
+  // Acknowledge SE signal
+  await app.inject({
+    method: 'PATCH',
+    url: `/doctor/care-signals/${seSignal.public_id}/status`,
+    headers: { authorization: `Bearer ${doctorAToken}` },
+    payload: { status: 'ACKNOWLEDGED' }
+  });
+
+  // Re-run sync repeatedly while ACKNOWLEDGED
+  await syncSevereSideEffectSignal(severeEntry.id);
+  await syncSevereSideEffectSignal(severeEntry.id);
+
+  const seSignalsInDb = await prisma.care_signals.findMany({
+    where: { source_type: 'SIDE_EFFECT', source_id: severeEntry.id }
+  });
+  assert.equal(seSignalsInDb.length, 1, 'Severe side effect evaluator must not duplicate signal while ACKNOWLEDGED');
+  assert.equal(seSignalsInDb[0].status, 'ACKNOWLEDGED');
+
+  // C. Refill Stock Dedupe across OPEN and ACKNOWLEDGED
+  await prisma.art_medication_stocks.create({
+    data: {
+      id: randomUUID(),
+      patient_user_id: patient1Id,
+      estimated_days_remaining: 0,
+      quantity_remaining: 0
+    }
+  });
+
+  const refillSignal = await syncRefillStockSignal(patient1Id);
+  assert.ok(refillSignal);
+  assert.equal(refillSignal.status, 'OPEN');
+
+  // Acknowledge Refill signal
+  await app.inject({
+    method: 'PATCH',
+    url: `/doctor/care-signals/${refillSignal.public_id}/status`,
+    headers: { authorization: `Bearer ${doctorAToken}` },
+    payload: { status: 'ACKNOWLEDGED' }
+  });
+
+  // Re-run refill sync repeatedly
+  await syncRefillStockSignal(patient1Id);
+  await syncRefillStockSignal(patient1Id);
+
+  const refillSignalsInDb = await prisma.care_signals.findMany({
+    where: { patient_id: patient1Id, signal_type: 'REFILL_NEEDS_ATTENTION' }
+  });
+  assert.equal(refillSignalsInDb.length, 1, 'Refill sync must not duplicate signal while ACKNOWLEDGED');
+  assert.equal(refillSignalsInDb[0].status, 'ACKNOWLEDGED');
+
+  // =========================================================================
+  // 2. METADATA PRIVACY & ARBITRARY CLIENT DATA REJECTION AUDIT
+  // =========================================================================
+
+  // Client attempts to submit arbitrary metadata or sensitive clinical fields
+  const maliciousContactReq = await app.inject({
+    method: 'POST',
+    url: '/patient/care-signals/request-clinical-contact',
+    headers: { authorization: `Bearer ${patient1Token}` },
+    payload: {
+      category: 'OTHER',
+      metadata: { leaked_note: 'sensitif', diagnosis: 'HIV stadium 3' },
+      free_text: 'injeksi teks bebas'
+    }
+  });
+  assert.equal(maliciousContactReq.statusCode, 400, 'Arbitrary client metadata and unexpected fields must be rejected');
+
+  const maliciousCompanionReq = await app.inject({
+    method: 'POST',
+    url: '/patient/care-signals/request-companion-support',
+    headers: { authorization: `Bearer ${patient1Token}` },
+    payload: {
+      preferred_contact_time: 'MORNING',
+      metadata: { private_key: 'malicious' },
+      notes: 'teks terlarang'
+    }
+  });
+  assert.equal(maliciousCompanionReq.statusCode, 400, 'Arbitrary metadata on companion request must be rejected');
+
+  const maliciousDoctorAction = await app.inject({
+    method: 'POST',
+    url: `/doctor/care-signals/${signal2.public_id}/actions`,
+    headers: { authorization: `Bearer ${doctorAToken}` },
+    payload: {
+      action_type: 'CONTACTED',
+      metadata: { raw_note: 'clinical notes' }
+    }
+  });
+  assert.equal(maliciousDoctorAction.statusCode, 400, 'Arbitrary metadata on doctor action must be rejected');
+
+  const maliciousCompanionAction = await app.inject({
+    method: 'POST',
+    url: `/companion/care-signals/${refillSignal.public_id}/actions`,
+    headers: { authorization: `Bearer ${companion1Token}` },
+    payload: {
+      action_type: 'CONTACTED',
+      metadata: { drug_name: 'Efavirenz' }
+    }
+  });
+  assert.equal(maliciousCompanionAction.statusCode, 400, 'Arbitrary metadata on companion action must be rejected');
+
+  // Verify Companion payload never leaks raw metadata or clinical fields
+  const compPayloadRes = await app.inject({
+    method: 'GET',
+    url: `/companion/patients/${patient1Id}/follow-up-signals`,
+    headers: { authorization: `Bearer ${companion1Token}` }
+  });
+  assert.equal(compPayloadRes.statusCode, 200);
+  const compItems = compPayloadRes.json().items;
+  assert.ok(compItems.length > 0);
+  for (const item of compItems) {
+    assert.equal(item.metadata, undefined, 'Raw metadata must never be exposed to companion');
+    assert.equal(item.request_category, undefined, 'Request category must not leak to companion');
+    assert.equal(item.symptom_name, undefined);
+    assert.equal(item.medication_name, undefined);
+    assert.equal(item.notes, undefined);
+  }
+
+  // Verify Admin governance summary never returns metadata or patient records
+  const adminGovRes = await app.inject({
+    method: 'GET',
+    url: '/admin/governance/care-signals/summary',
+    headers: { authorization: `Bearer ${adminToken}` }
+  });
+  assert.equal(adminGovRes.statusCode, 200);
+  const adminSummary = adminGovRes.json();
+  assert.equal(adminSummary.metadata, undefined);
+  assert.equal(adminSummary.items, undefined);
+  assert.equal(adminSummary.signals, undefined);
+
+  // =========================================================================
+  // 3. UNASSIGNED CLINICAL REQUEST ROUTING SECURITY AUDIT
+  // =========================================================================
+
+  // Patient 2 has NO relationship with Doctor A or Doctor B, and NO companion
+  const unassignedReq = await app.inject({
+    method: 'POST',
+    url: '/patient/care-signals/request-clinical-contact',
+    headers: { authorization: `Bearer ${patient2Token}` },
+    payload: {
+      category: 'GENERAL_HEALTH_SUPPORT',
+      preferred_contact_time: 'AFTERNOON'
+    }
+  });
+  assert.equal(unassignedReq.statusCode, 201);
+  const unassignedSignal = unassignedReq.json();
+  assert.equal(unassignedSignal.status, 'OPEN');
+  assert.equal(unassignedSignal.display_title, 'Permintaan Kontak Tenaga Kesehatan');
+  assert.equal(unassignedSignal.cta.label, 'Menunggu Tindak Lanjut');
+
+  // Verify DB state: signal exists and is unassigned (source_id is null)
+  const dbUnassigned = await prisma.care_signals.findUnique({
+    where: { public_id: unassignedSignal.public_id }
+  });
+  assert.ok(dbUnassigned);
+  assert.equal(dbUnassigned.patient_id, patient2Id);
+  assert.equal(dbUnassigned.source_id, null);
+
+  // A. Unrelated Doctor B cannot read unassigned clinical request in list
+  const docBListRes = await app.inject({
+    method: 'GET',
+    url: '/doctor/care-signals',
+    headers: { authorization: `Bearer ${doctorBToken}` }
+  });
+  assert.equal(docBListRes.statusCode, 200);
+  const docBItems = docBListRes.json().items;
+  assert.ok(!docBItems.some((s: any) => s.public_id === unassignedSignal.public_id), 'Unrelated Doctor B must not see unassigned request');
+
+  // B. Unrelated Doctor B cannot access via patient detail endpoint (403)
+  const docBPatientRes = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient2Id}/care-signals`,
+    headers: { authorization: `Bearer ${doctorBToken}` }
+  });
+  assert.equal(docBPatientRes.statusCode, 403, 'Unrelated doctor must be denied on unscoped patient');
+
+  // C. Admin cannot read patient-level clinical request (403)
+  const adminDetailRes = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient2Id}/care-signals`,
+    headers: { authorization: `Bearer ${adminToken}` }
+  });
+  assert.equal(adminDetailRes.statusCode, 403, 'Admin must not have access to clinical patient signals');
+
+  // D. Companion cannot read unassigned clinical request
+  const compUnassignedListRes = await app.inject({
+    method: 'GET',
+    url: '/companion/follow-up-signals',
+    headers: { authorization: `Bearer ${companion1Token}` }
+  });
+  assert.equal(compUnassignedListRes.statusCode, 200);
+  assert.ok(
+    !compUnassignedListRes.json().items.some((s: any) => s.public_id === unassignedSignal.public_id),
+    'Companion must never see clinical contact request'
+  );
+
+  // E. Patient 2 can safely see own unassigned request
+  const pat2SignalsRes = await app.inject({
+    method: 'GET',
+    url: '/patient/care-signals',
+    headers: { authorization: `Bearer ${patient2Token}` }
+  });
+  assert.equal(pat2SignalsRes.statusCode, 200);
+  const pat2Item = pat2SignalsRes.json().items.find((s: any) => s.public_id === unassignedSignal.public_id);
+  assert.ok(pat2Item);
+  assert.equal(pat2Item.display_title, 'Permintaan Kontak Tenaga Kesehatan');
+  assert.equal(pat2Item.cta.label, 'Menunggu Tindak Lanjut');
+
+  // F. Once legitimate clinical relationship is established with Doctor A:
+  await prisma.consultations.create({
+    data: {
+      id: randomUUID(),
+      patient_id: patient2Id,
+      assignedDoctorId: doctorAId,
+      status: 'DOKTER_AKTIF',
+      initial_complaint: 'Konsultasi awal pasca-permintaan',
+      opened_at: now,
+      doctor_joined_at: now,
+      updated_at: now
+    }
+  });
+
+  // Now Doctor A (scoped) can view the request
+  const docAPatient2Res = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient2Id}/care-signals`,
+    headers: { authorization: `Bearer ${doctorAToken}` }
+  });
+  assert.equal(docAPatient2Res.statusCode, 200);
+  assert.ok(docAPatient2Res.json().items.some((s: any) => s.public_id === unassignedSignal.public_id));
+
+  // Doctor B remains unrelated and STILL denied (403)
+  const docBPatient2StillDenied = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient2Id}/care-signals`,
+    headers: { authorization: `Bearer ${doctorBToken}` }
+  });
+  assert.equal(docBPatient2StillDenied.statusCode, 403);
+
+  // =========================================================================
+  // 4. SUPPORT -> CLINICAL ESCALATION ISOLATION AUDIT
+  // =========================================================================
+
+  // Companion 1 escalates the refill signal of Patient 1 to clinical
+  const escalateRefillRes = await app.inject({
+    method: 'POST',
+    url: `/companion/care-signals/${refillSignal.public_id}/actions`,
+    headers: { authorization: `Bearer ${companion1Token}` },
+    payload: { action_type: 'ESCALATED_TO_CLINICAL' }
+  });
+  assert.equal(escalateRefillRes.statusCode, 200);
+
+  // Check 1: Companion cannot access doctor clinical endpoint
+  const compDocEndpointRes = await app.inject({
+    method: 'GET',
+    url: '/doctor/care-signals',
+    headers: { authorization: `Bearer ${companion1Token}` }
+  });
+  assert.equal(compDocEndpointRes.statusCode, 403, 'Companion must not access doctor endpoints after escalating');
+
+  // Check 2: Companion cannot view severe side effect signal
+  const compSevereActionRes = await app.inject({
+    method: 'POST',
+    url: `/companion/care-signals/${seSignal.public_id}/actions`,
+    headers: { authorization: `Bearer ${companion1Token}` },
+    payload: { action_type: 'ACKNOWLEDGED' }
+  });
+  assert.equal(compSevereActionRes.statusCode, 404, 'Companion must receive 404 on clinical side effect signal');
+
+  // Check 3: Escalated signal in companion view still uses safe generic title
+  const compRefillViewRes = await app.inject({
+    method: 'GET',
+    url: `/companion/patients/${patient1Id}/follow-up-signals`,
+    headers: { authorization: `Bearer ${companion1Token}` }
+  });
+  assert.equal(compRefillViewRes.statusCode, 200);
+  const compRefillItem = compRefillViewRes.json().items.find((s: any) => s.public_id === refillSignal.public_id);
+  assert.ok(compRefillItem);
+  assert.equal(compRefillItem.support_title, 'Persediaan kesehatan perlu diperiksa');
+  assert.ok(!JSON.stringify(compRefillItem).includes('Efavirenz'));
+
+  // Check 4: Unrelated Doctor B still cannot access Patient 1 signals
+  const docBPatient1Res = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient1Id}/care-signals`,
+    headers: { authorization: `Bearer ${doctorBToken}` }
+  });
+  assert.equal(docBPatient1Res.statusCode, 403, 'Escalation by companion does not expose signal to unrelated doctors');
+
+  // Check 5: Scoped Doctor A sees escalated priority
+  const docAPatient1Res = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient1Id}/care-signals`,
+    headers: { authorization: `Bearer ${doctorAToken}` }
+  });
+  assert.equal(docAPatient1Res.statusCode, 200);
+  const docRefillItem = docAPatient1Res.json().items.find((s: any) => s.public_id === refillSignal.public_id);
+  assert.ok(docRefillItem);
+  assert.equal(docRefillItem.priority, 'PRIORITY');
+  assert.equal(docRefillItem.signal_scope, 'CLINICAL');
+  assert.ok(docRefillItem.actions.some((a: any) => a.action_type === 'ESCALATED_TO_CLINICAL'));
+
+  // =========================================================================
+  // 5. HISTORY & AUDIT PRESERVATION CONFIRMATION
+  // =========================================================================
+
+  // Doctor A resolves the escalated refill signal
+  const resolveRefillRes = await app.inject({
+    method: 'PATCH',
+    url: `/doctor/care-signals/${refillSignal.public_id}/status`,
+    headers: { authorization: `Bearer ${doctorAToken}` },
+    payload: { status: 'RESOLVED' }
+  });
+  assert.equal(resolveRefillRes.statusCode, 200);
+
+  // Confirm signal is NOT deleted from DB
+  const resolvedSignalInDb = await prisma.care_signals.findUnique({
+    where: { public_id: refillSignal.public_id }
+  });
+  assert.ok(resolvedSignalInDb, 'Resolved signal must remain in database');
+  assert.equal(resolvedSignalInDb.status, 'RESOLVED');
+
+  // Confirm actions history is preserved completely
+  const actionsInDb = await prisma.care_signal_actions.findMany({
+    where: { care_signal_id: resolvedSignalInDb.id },
+    orderBy: { occurred_at: 'asc' }
+  });
+  assert.ok(actionsInDb.length >= 2, 'Action history must be preserved');
+  const actionTypes = actionsInDb.map((a) => a.action_type);
+  assert.ok(actionTypes.includes('ESCALATED_TO_CLINICAL'));
+  assert.ok(actionTypes.includes('RESOLVED'));
+});

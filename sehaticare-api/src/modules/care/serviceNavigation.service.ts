@@ -189,29 +189,47 @@ export async function getEligibleTargetClinicians(facilityId: string) {
     }));
 }
 
-export async function isDoctorAffiliatedWithFacility(doctorUserId: string, facilityId: string): Promise<boolean> {
-  const affiliation = await prisma.doctor_facility_affiliations.findFirst({
+export const REFERRAL_TYPE_TO_SERVICE_TYPES: Record<string, string[]> = {
+  CLINICAL_FOLLOW_UP: ['CLINICAL_CONSULTATION'],
+  CONTINUITY_OF_CARE: ['ART_CONTINUITY', 'ARV_SERVICE'],
+  LAB_MONITORING: ['LAB_MONITORING', 'LABORATORY'],
+  MEDICATION_CONTINUITY: ['ART_CONTINUITY', 'ARV_SERVICE'],
+  COUNSELING: ['COUNSELING', 'PSYCHOLOGY'],
+  GENERAL_REFERRAL: ['REFERRAL_INTAKE', 'CLINICAL_CONSULTATION']
+};
+
+export async function isDoctorAffiliatedWithFacility(
+  doctorUserId: string,
+  facilityId: string,
+  tx: any = prisma
+): Promise<boolean> {
+  // 1. Verify target facility is active and verified
+  const facility = await tx.health_facilities.findUnique({
+    where: { id: facilityId },
+    select: { id: true, is_active: true, verification_status: true, name: true }
+  });
+  if (!facility || !facility.is_active || facility.verification_status !== 'VERIFIED') {
+    return false;
+  }
+
+  // 2. Verify doctor user is active and role is DOKTER
+  const doctor = await tx.users.findUnique({
+    where: { id: doctorUserId },
+    select: { id: true, is_active: true, role: true }
+  });
+  if (!doctor || !doctor.is_active || doctor.role !== 'DOKTER') {
+    return false;
+  }
+
+  // 3. Verify affiliation in doctor_facility_affiliations
+  const affiliation = await tx.doctor_facility_affiliations.findFirst({
     where: {
       doctor_user_id: doctorUserId,
       facility_id: facilityId,
       is_active: true
     }
   });
-  if (affiliation) return true;
-
-  // Fallback: check if doctor profile puskesmas_name matches facility name
-  const facility = await prisma.health_facilities.findUnique({
-    where: { id: facilityId },
-    select: { name: true }
-  });
-  if (!facility) return false;
-
-  const profile = await prisma.doctor_profiles.findUnique({
-    where: { user_id: doctorUserId },
-    select: { puskesmas_name: true, verification_status: true }
-  });
-
-  return profile?.verification_status === 'VERIFIED' && profile?.puskesmas_name === facility.name;
+  return Boolean(affiliation);
 }
 
 export async function createDoctorAffiliation(input: {
@@ -274,6 +292,20 @@ export async function requestPatientReferral(input: {
 
   if (!targetFacility || !targetFacility.is_active || targetFacility.verification_status !== 'VERIFIED') {
     throw new ServiceNavigationError('Fasilitas tujuan tidak valid atau belum terverifikasi', 400);
+  }
+
+  const allowedServices = REFERRAL_TYPE_TO_SERVICE_TYPES[input.referralType] || [];
+  const activeService = await prisma.facility_services.findFirst({
+    where: {
+      facility_id: targetFacility.id,
+      service: { in: allowedServices as any },
+      is_active: true,
+      verified: true
+    }
+  });
+
+  if (!activeService) {
+    throw new ServiceNavigationError('Fasilitas tujuan tidak menyediakan layanan aktif yang diminta', 400);
   }
 
   const now = new Date();
@@ -377,14 +409,32 @@ export async function updatePatientReferralConsent(input: {
     throw new ServiceNavigationError('Rujukan tidak ditemukan', 404);
   }
 
+  // Once sent, patient consent cannot be mutated via this endpoint
+  if (referral.status === 'SENT') {
+    throw new ServiceNavigationError('Rujukan telah dikirim ke fasilitas tujuan dan persetujuan tidak dapat diubah', 409);
+  }
+
   // Once accepted or completed, consent cannot be silently revoked to undo historical relationship
   if (['ACCEPTED', 'COMPLETED'].includes(referral.status)) {
     throw new ServiceNavigationError('Rujukan telah diterima oleh fasilitas tujuan dan relasi layanan telah berjalan', 409);
   }
 
+  // Terminal states cannot have consent mutated
+  if (['DECLINED', 'CANCELLED'].includes(referral.status)) {
+    throw new ServiceNavigationError('Status rujukan terminal tidak dapat diubah', 409);
+  }
+
   const now = new Date();
 
   await prisma.$transaction(async (tx) => {
+    const current = await tx.care_referrals.findUnique({
+      where: { id: referral.id }
+    });
+    if (!current) throw new ServiceNavigationError('Rujukan tidak ditemukan', 404);
+    if (!['REQUESTED', 'DRAFT', 'PENDING_PATIENT_CONSENT', 'CONSENTED'].includes(current.status)) {
+      throw new ServiceNavigationError('Status rujukan saat ini tidak mengizinkan perubahan persetujuan', 409);
+    }
+
     await tx.care_referral_consents.upsert({
       where: { referral_id: referral.id },
       create: {
@@ -403,16 +453,13 @@ export async function updatePatientReferralConsent(input: {
       }
     });
 
-    let nextStatus = referral.status;
+    let nextStatus = current.status;
     if (input.isConsentEnabled) {
-      if (referral.status === 'PENDING_PATIENT_CONSENT' || referral.status === 'DRAFT') {
+      if (['PENDING_PATIENT_CONSENT', 'DRAFT'].includes(current.status)) {
         nextStatus = 'CONSENTED';
       }
     } else {
-      if (referral.status === 'SENT') {
-        // If revoked while pending sent, roll back to draft/pending consent
-        nextStatus = 'PENDING_PATIENT_CONSENT';
-      } else if (referral.status === 'CONSENTED') {
+      if (current.status === 'CONSENTED') {
         nextStatus = 'PENDING_PATIENT_CONSENT';
       }
     }
@@ -708,6 +755,97 @@ export async function createDoctorReferralDraft(input: {
   return resolveReferral(referral.id);
 }
 
+export async function reviewDoctorPatientReferral(input: {
+  doctorUserId: string;
+  referralIdentifier: string;
+  targetFacilityId?: string;
+  targetDoctorId?: string | null;
+  referralType?: 'CLINICAL_FOLLOW_UP' | 'CONTINUITY_OF_CARE' | 'LAB_MONITORING' | 'MEDICATION_CONTINUITY' | 'COUNSELING' | 'GENERAL_REFERRAL';
+  schedulingPreference?: string | null;
+  correlationId?: string;
+}) {
+  const referral = await resolveReferral(input.referralIdentifier);
+  if (!referral) {
+    throw new ServiceNavigationError('Rujukan tidak ditemukan', 404);
+  }
+
+  // Doctor may review the patient request only if verifyDoctorPatientScope succeeds!
+  const hasScope = await hasDoctorPatientRelationship(input.doctorUserId, referral.patient_id);
+  if (!hasScope) {
+    throw new ServiceNavigationError('Tidak memiliki relasi klinis sah dengan pasien ini', 403);
+  }
+
+  // Status check: must be REQUESTED or DRAFT
+  if (!['REQUESTED', 'DRAFT'].includes(referral.status)) {
+    throw new ServiceNavigationError('Rujukan sudah diproses dan tidak dapat ditinjau ulang', 409);
+  }
+
+  const targetFacilityId = input.targetFacilityId || referral.target_facility_id;
+  const targetFacility = await prisma.health_facilities.findUnique({
+    where: { id: targetFacilityId }
+  });
+  if (!targetFacility || !targetFacility.is_active || targetFacility.verification_status !== 'VERIFIED') {
+    throw new ServiceNavigationError('Fasilitas tujuan tidak valid atau belum terverifikasi', 400);
+  }
+
+  const referralType = input.referralType || referral.referral_type;
+
+  if (input.targetDoctorId) {
+    const isAffiliated = await isDoctorAffiliatedWithFacility(input.targetDoctorId, targetFacilityId);
+    if (!isAffiliated) {
+      throw new ServiceNavigationError('Dokter tujuan tidak terafiliasi aktif dengan fasilitas tujuan', 400);
+    }
+  }
+
+  const sourceAffiliation = await prisma.doctor_facility_affiliations.findFirst({
+    where: { doctor_user_id: input.doctorUserId, is_active: true }
+  });
+
+  const now = new Date();
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.care_referrals.update({
+      where: { id: referral.id },
+      data: {
+        source_doctor_id: input.doctorUserId,
+        source_facility_id: sourceAffiliation?.facility_id || referral.source_facility_id,
+        target_facility_id: targetFacilityId,
+        target_doctor_id: input.targetDoctorId !== undefined ? input.targetDoctorId : referral.target_doctor_id,
+        referral_type: referralType,
+        scheduling_preference: input.schedulingPreference !== undefined ? input.schedulingPreference : referral.scheduling_preference,
+        status: 'DRAFT',
+        updated_at: now
+      }
+    });
+
+    await tx.care_referral_events.create({
+      data: {
+        id: randomUUID(),
+        referral_id: referral.id,
+        actor_user_id: input.doctorUserId,
+        event_type: 'DRAFTED',
+        occurred_at: now
+      }
+    });
+
+    return row;
+  });
+
+  await recordAuditLog(prisma, {
+    actorUserId: input.doctorUserId,
+    action: 'REFERRAL_DRAFTED',
+    entityType: 'care_referral',
+    entityId: referral.id,
+    meta: {
+      public_id: referral.public_id,
+      patient_id: referral.patient_id,
+      target_facility_id: targetFacilityId,
+      correlation_id: input.correlationId
+    }
+  });
+
+  return resolveReferral(updated.id);
+}
+
 export async function updateDoctorReferralDraft(input: {
   doctorUserId: string;
   referralIdentifier: string;
@@ -722,6 +860,12 @@ export async function updateDoctorReferralDraft(input: {
     throw new ServiceNavigationError('Rujukan tidak ditemukan', 404);
   }
 
+  // Doctor authorization: must satisfy verifyDoctorPatientScope
+  const hasScope = await hasDoctorPatientRelationship(input.doctorUserId, referral.patient_id);
+  if (!hasScope) {
+    throw new ServiceNavigationError('Tidak memiliki relasi klinis sah dengan pasien ini', 403);
+  }
+
   if (referral.source_doctor_id && referral.source_doctor_id !== input.doctorUserId) {
     throw new ServiceNavigationError('Tidak memiliki wewenang mengubah draf rujukan ini', 403);
   }
@@ -731,6 +875,15 @@ export async function updateDoctorReferralDraft(input: {
   }
 
   const targetFacilityId = input.targetFacilityId || referral.target_facility_id;
+  const targetFacility = await prisma.health_facilities.findUnique({
+    where: { id: targetFacilityId }
+  });
+  if (!targetFacility || !targetFacility.is_active || targetFacility.verification_status !== 'VERIFIED') {
+    throw new ServiceNavigationError('Fasilitas tujuan tidak valid atau belum terverifikasi', 400);
+  }
+
+  const referralType = input.referralType || referral.referral_type;
+
   if (input.targetDoctorId) {
     const isAffiliated = await isDoctorAffiliatedWithFacility(input.targetDoctorId, targetFacilityId);
     if (!isAffiliated) {
@@ -738,19 +891,38 @@ export async function updateDoctorReferralDraft(input: {
     }
   }
 
+  const sourceAffiliation = await prisma.doctor_facility_affiliations.findFirst({
+    where: { doctor_user_id: input.doctorUserId, is_active: true }
+  });
+
   const now = new Date();
+  const nextStatus = referral.status === 'REQUESTED' ? 'DRAFT' : referral.status;
   const updated = await prisma.$transaction(async (tx) => {
     const row = await tx.care_referrals.update({
       where: { id: referral.id },
       data: {
         source_doctor_id: input.doctorUserId,
+        source_facility_id: sourceAffiliation?.facility_id || referral.source_facility_id,
         target_facility_id: targetFacilityId,
         target_doctor_id: input.targetDoctorId !== undefined ? input.targetDoctorId : referral.target_doctor_id,
-        referral_type: input.referralType || referral.referral_type,
+        referral_type: referralType,
         scheduling_preference: input.schedulingPreference !== undefined ? input.schedulingPreference : referral.scheduling_preference,
+        status: nextStatus,
         updated_at: now
       }
     });
+
+    if (referral.status === 'REQUESTED') {
+      await tx.care_referral_events.create({
+        data: {
+          id: randomUUID(),
+          referral_id: referral.id,
+          actor_user_id: input.doctorUserId,
+          event_type: 'DRAFTED',
+          occurred_at: now
+        }
+      });
+    }
 
     if (input.targetDoctorId && input.targetDoctorId !== referral.target_doctor_id) {
       await tx.care_referral_events.create({
@@ -778,6 +950,11 @@ export async function requestDoctorPatientReferralConsent(input: {
   const referral = await resolveReferral(input.referralIdentifier);
   if (!referral) {
     throw new ServiceNavigationError('Rujukan tidak ditemukan', 404);
+  }
+
+  const hasScope = await hasDoctorPatientRelationship(input.doctorUserId, referral.patient_id);
+  if (!hasScope) {
+    throw new ServiceNavigationError('Tidak memiliki relasi klinis sah dengan pasien ini', 403);
   }
 
   if (referral.source_doctor_id && referral.source_doctor_id !== input.doctorUserId) {
@@ -834,13 +1011,14 @@ export async function sendDoctorReferral(input: {
     throw new ServiceNavigationError('Rujukan tidak ditemukan', 404);
   }
 
-  if (referral.source_doctor_id && referral.source_doctor_id !== input.doctorUserId) {
-    throw new ServiceNavigationError('Tidak memiliki wewenang untuk rujukan ini', 403);
+  // Verify clinical scope with patient
+  const hasScope = await hasDoctorPatientRelationship(input.doctorUserId, referral.patient_id);
+  if (!hasScope) {
+    throw new ServiceNavigationError('Tidak memiliki relasi klinis sah dengan pasien ini', 403);
   }
 
-  // PRIVACY BOUNDARY: Patient consent is REQUIRED before sending!
-  if (!referral.consent?.is_consent_enabled) {
-    throw new ServiceNavigationError('Persetujuan pasien diperlukan sebelum rujukan dapat dikirim', 400);
+  if (referral.source_doctor_id && referral.source_doctor_id !== input.doctorUserId) {
+    throw new ServiceNavigationError('Tidak memiliki wewenang untuk rujukan ini', 403);
   }
 
   // PRIVACY BOUNDARY: Named receiving doctor is REQUIRED!
@@ -848,26 +1026,54 @@ export async function sendDoctorReferral(input: {
     throw new ServiceNavigationError('Dokter penerima di fasilitas tujuan harus ditentukan sebelum rujukan dikirim', 400);
   }
 
-  // Validate target doctor eligibility
-  const isAffiliated = await isDoctorAffiliatedWithFacility(referral.target_doctor_id, referral.target_facility_id);
-  if (!isAffiliated) {
-    throw new ServiceNavigationError('Dokter penerima tidak terafiliasi aktif dengan fasilitas tujuan', 400);
-  }
-
-  if (referral.status !== 'CONSENTED') {
-    throw new ServiceNavigationError('Rujukan harus disetujui pasien (status CONSENTED) sebelum dapat dikirim', 409);
-  }
-
   const now = new Date();
   await prisma.$transaction(async (tx) => {
-    await tx.care_referrals.update({
+    // 1. Fetch fresh record inside tx to protect against concurrent revocation
+    const current = await tx.care_referrals.findUnique({
       where: { id: referral.id },
+      include: {
+        consent: true,
+        target_facility: true
+      }
+    });
+
+    if (!current) throw new ServiceNavigationError('Rujukan tidak ditemukan', 404);
+
+    // PRIVACY BOUNDARY: Patient consent is REQUIRED before sending!
+    if (!current.consent?.is_consent_enabled) {
+      throw new ServiceNavigationError('Persetujuan pasien diperlukan sebelum rujukan dapat dikirim', 400);
+    }
+
+    if (current.status !== 'CONSENTED') {
+      throw new ServiceNavigationError('Rujukan harus disetujui pasien (status CONSENTED) sebelum dapat dikirim', 409);
+    }
+
+    if (!current.target_doctor_id) {
+      throw new ServiceNavigationError('Dokter penerima di fasilitas tujuan harus ditentukan sebelum rujukan dikirim', 400);
+    }
+
+    // 2. Revalidate target doctor eligibility immediately before SEND
+    const isAffiliated = await isDoctorAffiliatedWithFacility(current.target_doctor_id, current.target_facility_id, tx);
+    if (!isAffiliated) {
+      throw new ServiceNavigationError('Dokter penerima tidak terafiliasi aktif dengan fasilitas tujuan', 400);
+    }
+
+    // 3. Conditional update
+    const updateResult = await tx.care_referrals.updateMany({
+      where: {
+        id: referral.id,
+        status: 'CONSENTED'
+      },
       data: {
         status: 'SENT',
         sent_at: now,
         updated_at: now
       }
     });
+
+    if (updateResult.count === 0) {
+      throw new ServiceNavigationError('Rujukan gagal dikirim karena status atau persetujuan telah berubah', 409);
+    }
 
     await tx.care_referral_events.create({
       data: {
@@ -904,6 +1110,11 @@ export async function cancelDoctorReferral(input: {
   const referral = await resolveReferral(input.referralIdentifier);
   if (!referral) {
     throw new ServiceNavigationError('Rujukan tidak ditemukan', 404);
+  }
+
+  const hasScope = await hasDoctorPatientRelationship(input.doctorUserId, referral.patient_id);
+  if (!hasScope) {
+    throw new ServiceNavigationError('Tidak memiliki relasi klinis sah dengan pasien ini', 403);
   }
 
   if (referral.source_doctor_id && referral.source_doctor_id !== input.doctorUserId) {
@@ -1074,9 +1285,33 @@ export async function acceptIncomingReferral(input: {
   const now = new Date();
 
   await prisma.$transaction(async (tx) => {
-    // 1. Update referral status
-    await tx.care_referrals.update({
+    // 1. Re-fetch fresh state inside tx to ensure status and consent are strictly valid
+    const current = await tx.care_referrals.findUnique({
       where: { id: referral.id },
+      include: { consent: true }
+    });
+
+    if (!current || current.status !== 'SENT') {
+      throw new ServiceNavigationError('Rujukan sudah diproses atau status tidak valid untuk diterima', 409);
+    }
+
+    if (!current.consent?.is_consent_enabled) {
+      throw new ServiceNavigationError('Persetujuan pasien tidak aktif untuk rujukan ini', 403);
+    }
+
+    // 2. Re-verify destination doctor eligibility immediately before ACCEPT
+    const isAffiliated = await isDoctorAffiliatedWithFacility(input.doctorUserId, current.target_facility_id, tx);
+    if (!isAffiliated) {
+      throw new ServiceNavigationError('Dokter penerima tidak terafiliasi aktif dengan fasilitas tujuan saat menerima rujukan', 400);
+    }
+
+    // 3. Conditional update: ensures only one concurrent request can successfully accept
+    const updateResult = await tx.care_referrals.updateMany({
+      where: {
+        id: referral.id,
+        status: 'SENT',
+        target_doctor_id: input.doctorUserId
+      },
       data: {
         status: 'ACCEPTED',
         accepted_at: now,
@@ -1084,22 +1319,26 @@ export async function acceptIncomingReferral(input: {
       }
     });
 
-    // 2. Establish legitimate clinical relationship through current architecture!
+    if (updateResult.count === 0) {
+      throw new ServiceNavigationError('Rujukan sudah diproses atau status tidak valid untuk diterima', 409);
+    }
+
+    // 4. Establish legitimate clinical relationship through current architecture!
     // Creates an active consultation with destination doctor
     await tx.consultations.create({
       data: {
         id: randomUUID(),
-        patient_id: referral.patient_id,
+        patient_id: current.patient_id,
         assignedDoctorId: input.doctorUserId,
         status: 'DOKTER_AKTIF',
-        initial_complaint: `Rujukan Masuk: ${referral.referral_type}`,
+        initial_complaint: `Rujukan Masuk: ${current.referral_type}`,
         opened_at: now,
         doctor_joined_at: now,
         updated_at: now
       }
     });
 
-    // 3. Record immutable event
+    // 5. Record immutable event
     await tx.care_referral_events.create({
       data: {
         id: randomUUID(),
@@ -1321,6 +1560,19 @@ export async function createReferralFromCareSignalEscalation(input: {
   });
   if (!signal) return null;
 
+  // Deduplication check: Is there already an active referral for this care signal?
+  const existingActive = await prisma.care_referrals.findFirst({
+    where: {
+      source_care_signal_id: signal.id,
+      status: {
+        notIn: ['DECLINED', 'CANCELLED', 'COMPLETED']
+      }
+    }
+  });
+  if (existingActive) {
+    return existingActive;
+  }
+
   // Find a verified target facility (default to existing or first verified puskesmas)
   let targetFacilityId = input.targetFacilityId;
   if (!targetFacilityId) {
@@ -1336,6 +1588,18 @@ export async function createReferralFromCareSignalEscalation(input: {
   const referralId = randomUUID();
 
   const referral = await prisma.$transaction(async (tx) => {
+    const existingInTx = await tx.care_referrals.findFirst({
+      where: {
+        source_care_signal_id: signal.id,
+        status: {
+          notIn: ['DECLINED', 'CANCELLED', 'COMPLETED']
+        }
+      }
+    });
+    if (existingInTx) {
+      return existingInTx;
+    }
+
     const created = await tx.care_referrals.create({
       data: {
         id: referralId,

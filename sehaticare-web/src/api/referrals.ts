@@ -259,6 +259,21 @@ export async function updateDoctorReferralDraft(
   });
 }
 
+export async function reviewDoctorReferral(
+  referralId: string,
+  data: {
+    target_facility_id?: string;
+    target_doctor_id?: string | null;
+    referral_type?: string;
+    scheduling_preference?: string | null;
+  }
+): Promise<DoctorOutgoingReferral> {
+  return apiFetch<DoctorOutgoingReferral>(`/doctor/referrals/${referralId}/review`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
 export async function requestDoctorReferralConsent(referralId: string): Promise<DoctorOutgoingReferral> {
   return apiFetch<DoctorOutgoingReferral>(`/doctor/referrals/${referralId}/request-consent`, {
     method: 'POST'

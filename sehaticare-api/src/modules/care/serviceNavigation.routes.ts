@@ -15,6 +15,7 @@ import {
   updatePatientReferralCompanionShare,
   getDoctorPatientReferrals,
   createDoctorReferralDraft,
+  reviewDoctorPatientReferral,
   updateDoctorReferralDraft,
   requestDoctorPatientReferralConsent,
   sendDoctorReferral,
@@ -35,6 +36,7 @@ import {
   referralConsentUpdateSchema,
   referralCompanionShareUpdateSchema,
   doctorCreateReferralDraftSchema,
+  doctorReviewReferralSchema,
   doctorUpdateReferralDraftSchema,
   doctorDeclineReferralSchema,
   companionReferralActionSchema,
@@ -242,6 +244,25 @@ export default async function serviceNavigationRoutes(app: FastifyInstance) {
     const { referralId } = req.params as { referralId: string };
     const body = doctorUpdateReferralDraftSchema.parse(req.body || {});
     const referral = await updateDoctorReferralDraft({
+      doctorUserId: req.user!.userId,
+      referralIdentifier: referralId,
+      targetFacilityId: body.target_facility_id,
+      targetDoctorId: body.target_doctor_id,
+      referralType: body.referral_type,
+      schedulingPreference: body.scheduling_preference,
+      correlationId: req.id
+    });
+
+    return toDoctorOutgoingReferralDto(referral);
+  });
+
+  app.post('/doctor/referrals/:referralId/review', { preHandler: [authGuard] }, async (req, reply) => {
+    setPrivateNoStoreHeaders(reply);
+    if (!requireRole(req, reply, ['DOKTER'])) return;
+
+    const { referralId } = req.params as { referralId: string };
+    const body = doctorReviewReferralSchema.parse(req.body || {});
+    const referral = await reviewDoctorPatientReferral({
       doctorUserId: req.user!.userId,
       referralIdentifier: referralId,
       targetFacilityId: body.target_facility_id,

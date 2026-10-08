@@ -91,6 +91,8 @@ export const doctorUpdateReferralDraftSchema = z
   })
   .strict();
 
+export const doctorReviewReferralSchema = doctorUpdateReferralDraftSchema;
+
 export const doctorDeclineReferralSchema = z
   .object({
     reason: z.enum([

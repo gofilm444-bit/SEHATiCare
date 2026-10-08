@@ -238,8 +238,11 @@ test('AG-07: Care Signals, Follow-Up Overdue & Human Escalation Foundation', asy
   assert.equal(severeSignals[0].status, 'OPEN');
 
   // Verify DB record: NO symptom_name, NO patient_note, NO free text in care_signals!
+  const dbSideEffect = await prisma.art_side_effect_entries.findUnique({
+    where: { public_id: severeSeEntry.public_id }
+  });
   const dbSignal = await prisma.care_signals.findFirst({
-    where: { source_type: 'SIDE_EFFECT', source_id: severeSeEntry.id }
+    where: { source_type: 'SIDE_EFFECT', source_id: dbSideEffect!.id }
   });
   assert.ok(dbSignal);
   assert.equal(dbSignal.signal_type, 'SEVERE_SIDE_EFFECT_REPORTED');

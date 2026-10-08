@@ -39,3 +39,41 @@ export const patientReminderSyncSchema = z.object({
 export const adherenceQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(90).default(7)
 });
+
+export const patientSideEffectCreateSchema = z.object({
+  symptom_name: z.string().trim().min(1, 'Nama keluhan wajib diisi').max(200),
+  severity: z.enum(['MILD', 'MODERATE', 'SEVERE']),
+  patient_note: z.string().trim().max(1000).optional().nullable(),
+  occurred_at: z.string().datetime().optional(),
+  art_care_plan_id: z.string().optional().nullable()
+});
+
+export const patientSideEffectUpdateSchema = z.object({
+  symptom_name: z.string().trim().min(1).max(200).optional(),
+  severity: z.enum(['MILD', 'MODERATE', 'SEVERE']).optional(),
+  patient_note: z.string().trim().max(1000).optional().nullable(),
+  status: z.enum(['ACTIVE', 'RESOLVED']).optional(),
+  occurred_at: z.string().datetime().optional(),
+  resolved_at: z.string().datetime().optional().nullable()
+});
+
+export const patientMedicationStockCreateSchema = z.object({
+  art_plan_item_id: z.string().optional().nullable(),
+  quantity_remaining: z.number().min(0, 'Jumlah obat tidak boleh negatif').max(9999.99).optional().nullable(),
+  unit: z.string().trim().max(50).optional().nullable(),
+  estimated_days_remaining: z.number().int().min(0, 'Estimasi hari tersisa tidak boleh negatif').max(365).optional().nullable(),
+  notes: z.string().trim().max(500).optional().nullable(),
+  recorded_at: z.string().datetime().optional()
+}).refine(
+  (data) => (data.quantity_remaining !== undefined && data.quantity_remaining !== null) || (data.estimated_days_remaining !== undefined && data.estimated_days_remaining !== null),
+  { message: 'Minimal masukkan jumlah persediaan atau estimasi hari tersisa.' }
+);
+
+export const patientRefillSettingsUpdateSchema = z.object({
+  refill_alert_threshold_days: z.number().int().min(1, 'Ambang batas minimal 1 hari').max(30, 'Ambang batas maksimal 30 hari')
+});
+
+export const patientRefillSupportConsentUpdateSchema = z.object({
+  is_consent_enabled: z.boolean()
+});
+

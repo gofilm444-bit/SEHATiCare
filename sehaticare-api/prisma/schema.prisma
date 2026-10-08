@@ -573,6 +573,10 @@ model users {
   art_care_plans_as_patient                               art_care_plans[]                @relation("art_care_plan_patient")
   art_care_plans_prescribed                               art_care_plans[]                @relation("art_care_plan_prescriber")
   art_adherence_support_consent                           art_adherence_support_consents?
+  art_side_effects_as_patient                             art_side_effect_entries[]       @relation("art_side_effect_patient")
+  art_medication_stocks_as_patient                        art_medication_stocks[]         @relation("art_stock_patient")
+  art_refill_setting                                      art_refill_settings?
+  art_refill_support_consent                              art_refill_support_consents?
 }
 
 model professional_outreach_cases {
@@ -1663,6 +1667,7 @@ model art_care_plans {
   prescribed_by           users                @relation("art_care_plan_prescriber", fields: [prescribed_by_doctor_id], references: [id])
   enrollment              hiv_care_enrollments @relation(fields: [enrollment_id], references: [id])
   items                   art_care_plan_items[]
+  side_effects            art_side_effect_entries[]
 
   @@index([patient_user_id, status])
   @@index([enrollment_id, status])
@@ -1683,6 +1688,7 @@ model art_care_plan_items {
 
   plan               art_care_plans       @relation(fields: [plan_id], references: [id], onDelete: Cascade)
   reminders          medication_reminders[]
+  stocks             art_medication_stocks[]
 
   @@index([plan_id])
 }
@@ -1706,6 +1712,84 @@ enum art_care_plan_status {
   MODIFIED
   DISCONTINUED
   COMPLETED
+}
+
+enum art_side_effect_severity {
+  MILD
+  MODERATE
+  SEVERE
+}
+
+enum art_side_effect_status {
+  ACTIVE
+  RESOLVED
+}
+
+model art_side_effect_entries {
+  id               String                   @id @db.Uuid
+  public_id        String                   @unique @default(dbgenerated("'se_' || replace(gen_random_uuid()::text, '-', '')"))
+  patient_user_id  String                   @db.Uuid
+  art_care_plan_id String?                  @db.Uuid
+  occurred_at      DateTime                 @default(now())
+  severity         art_side_effect_severity
+  symptom_name     String
+  patient_note     String?
+  status           art_side_effect_status   @default(ACTIVE)
+  resolved_at      DateTime?
+  archived_at      DateTime?
+  created_at       DateTime                 @default(now())
+  updated_at       DateTime                 @default(now())
+
+  patient          users                    @relation("art_side_effect_patient", fields: [patient_user_id], references: [id])
+  care_plan        art_care_plans?          @relation(fields: [art_care_plan_id], references: [id], onDelete: SetNull)
+
+  @@index([patient_user_id, occurred_at(sort: Desc)])
+  @@index([art_care_plan_id])
+  @@index([status])
+}
+
+model art_medication_stocks {
+  id                       String              @id @db.Uuid
+  public_id                String              @unique @default(dbgenerated("'stk_' || replace(gen_random_uuid()::text, '-', '')"))
+  patient_user_id          String              @db.Uuid
+  art_plan_item_id         String?             @db.Uuid
+  recorded_at              DateTime            @default(now())
+  quantity_remaining       Decimal?            @db.Decimal(7, 2)
+  unit                     String?
+  estimated_days_remaining  Int?
+  notes                    String?
+  created_at               DateTime            @default(now())
+  updated_at               DateTime            @default(now())
+
+  patient                  users               @relation("art_stock_patient", fields: [patient_user_id], references: [id])
+  plan_item                art_care_plan_items? @relation(fields: [art_plan_item_id], references: [id], onDelete: SetNull)
+
+  @@index([patient_user_id, recorded_at(sort: Desc)])
+  @@index([art_plan_item_id])
+}
+
+model art_refill_settings {
+  id                          String   @id @db.Uuid
+  patient_user_id             String   @unique @db.Uuid
+  refill_alert_threshold_days Int      @default(7)
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @default(now())
+
+  patient                     users    @relation(fields: [patient_user_id], references: [id])
+}
+
+model art_refill_support_consents {
+  id                 String    @id @db.Uuid
+  patient_user_id    String    @unique @db.Uuid
+  is_consent_enabled Boolean   @default(false)
+  consented_at       DateTime?
+  revoked_at         DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @default(now())
+
+  patient            users     @relation(fields: [patient_user_id], references: [id])
+
+  @@index([patient_user_id, is_consent_enabled])
 }
 
 

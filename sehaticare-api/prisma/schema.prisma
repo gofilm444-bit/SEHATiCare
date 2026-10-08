@@ -434,16 +434,29 @@ model health_facilities {
   consultation_preferences consultation_preferences[]
   patient_companion_assignments patient_companion_assignments[]
   hiv_care_enrollments          hiv_care_enrollments[]
+  doctor_affiliations           doctor_facility_affiliations[] @relation("doctor_facility_affiliations_facility")
+  care_referrals_source         care_referrals[]               @relation("care_referrals_source_facility")
+  care_referrals_target         care_referrals[]               @relation("care_referrals_target_facility")
 
   @@index([region_id, facility_type, verification_status, is_active])
   @@index([name])
 }
 
 model facility_services {
-  facility_id String                @db.Uuid
-  service     facility_service_type
-  verified    Boolean               @default(false)
-  facilities  health_facilities     @relation(fields: [facility_id], references: [id])
+  facility_id           String                @db.Uuid
+  service               facility_service_type
+  verified              Boolean               @default(false)
+  is_active             Boolean               @default(true)
+  appointment_required  Boolean               @default(false)
+  opening_time          String?
+  closing_time          String?
+  contact_public        String?
+  domicile_requirement  String?
+  insurance_requirement String?
+  notes_public          String?
+  created_at            DateTime              @default(now())
+  updated_at            DateTime              @default(now())
+  facilities            health_facilities     @relation(fields: [facility_id], references: [id])
 
   @@id([facility_id, service])
   @@index([service, verified])
@@ -583,6 +596,14 @@ model users {
   care_signals_dismissed                                  care_signals[]                  @relation("care_signals_dismissed_by")
   care_signal_actions                                     care_signal_actions[]           @relation("care_signal_action_actor")
   care_follow_up_support_consent                          care_follow_up_support_consents?
+  doctor_affiliations                                     doctor_facility_affiliations[]  @relation("doctor_facility_affiliations_doctor")
+  care_referrals_as_patient                               care_referrals[]                @relation("care_referrals_patient")
+  care_referrals_as_source_doctor                         care_referrals[]                @relation("care_referrals_source_doctor")
+  care_referrals_as_target_doctor                         care_referrals[]                @relation("care_referrals_target_doctor")
+  care_referrals_initiated                                care_referrals[]                @relation("care_referrals_initiator")
+  care_referral_consents                                  care_referral_consents[]
+  care_referral_events                                    care_referral_events[]
+  care_referral_companion_shares                          care_referral_companion_shares[]
 }
 
 model professional_outreach_cases {
@@ -801,6 +822,10 @@ enum facility_service_type {
   PHARMACY
   DISABILITY_ACCESS
   OTHER
+  CLINICAL_CONSULTATION
+  ART_CONTINUITY
+  LAB_MONITORING
+  REFERRAL_INTAKE
 }
 
 model control_schedules {
@@ -1896,4 +1921,166 @@ model care_follow_up_support_consents {
   patient            users     @relation(fields: [patient_id], references: [id])
 
   @@index([patient_id, is_consent_enabled])
+}
+
+model doctor_facility_affiliations {
+  id             String            @id @db.Uuid
+  doctor_user_id String            @db.Uuid
+  facility_id    String            @db.Uuid
+  is_active      Boolean           @default(true)
+  created_at     DateTime          @default(now())
+  updated_at     DateTime          @default(now())
+
+  doctor         users             @relation("doctor_facility_affiliations_doctor", fields: [doctor_user_id], references: [id], onDelete: Cascade)
+  facility       health_facilities @relation("doctor_facility_affiliations_facility", fields: [facility_id], references: [id], onDelete: Cascade)
+
+  @@unique([doctor_user_id, facility_id])
+  @@index([facility_id, is_active])
+  @@index([doctor_user_id, is_active])
+}
+
+enum care_referral_initiation_type {
+  PATIENT_REQUEST
+  DOCTOR_INITIATED
+  CARE_SIGNAL_ESCALATION
+}
+
+enum care_referral_type {
+  CLINICAL_FOLLOW_UP
+  CONTINUITY_OF_CARE
+  LAB_MONITORING
+  MEDICATION_CONTINUITY
+  COUNSELING
+  GENERAL_REFERRAL
+}
+
+enum care_referral_status {
+  REQUESTED
+  DRAFT
+  PENDING_PATIENT_CONSENT
+  CONSENTED
+  SENT
+  ACCEPTED
+  DECLINED
+  CANCELLED
+  COMPLETED
+}
+
+enum care_referral_decline_reason {
+  SERVICE_NOT_AVAILABLE
+  CAPACITY_UNAVAILABLE
+  WRONG_SERVICE
+  NEEDS_DIFFERENT_FACILITY
+  OTHER_OPERATIONAL
+}
+
+enum care_referral_event_type {
+  REQUESTED
+  DRAFTED
+  PATIENT_CONSENT_REQUESTED
+  PATIENT_CONSENT_GRANTED
+  PATIENT_CONSENT_REVOKED
+  TARGET_SELECTED
+  RECEIVING_DOCTOR_ASSIGNED
+  SENT
+  ACCEPTED
+  DECLINED
+  CANCELLED
+  COMPLETED
+  COMPANION_STATUS_SHARING_ENABLED
+  COMPANION_STATUS_SHARING_DISABLED
+  SUPPORT_CONTACT_ATTEMPTED
+  SUPPORT_CONTACTED
+}
+
+model care_referrals {
+  id                   String                       @id @db.Uuid
+  public_id            String                       @unique @default(dbgenerated("'ref_' || replace(gen_random_uuid()::text, '-', '')"))
+  patient_id           String                       @db.Uuid
+  source_facility_id   String?                      @db.Uuid
+  source_doctor_id     String?                      @db.Uuid
+  target_facility_id   String                       @db.Uuid
+  target_doctor_id     String?                      @db.Uuid
+  initiated_by_user_id String                       @db.Uuid
+  initiation_type      care_referral_initiation_type
+  referral_type        care_referral_type
+  status               care_referral_status         @default(REQUESTED)
+  decline_reason       care_referral_decline_reason?
+  source_care_signal_id String?                     @db.Uuid
+  scheduling_preference String?
+  requested_at         DateTime                     @default(now())
+  consented_at         DateTime?
+  sent_at              DateTime?
+  accepted_at          DateTime?
+  declined_at          DateTime?
+  cancelled_at         DateTime?
+  completed_at         DateTime?
+  created_at           DateTime                     @default(now())
+  updated_at           DateTime                     @default(now())
+
+  patient              users                        @relation("care_referrals_patient", fields: [patient_id], references: [id])
+  source_facility      health_facilities?           @relation("care_referrals_source_facility", fields: [source_facility_id], references: [id])
+  source_doctor        users?                       @relation("care_referrals_source_doctor", fields: [source_doctor_id], references: [id])
+  target_facility      health_facilities            @relation("care_referrals_target_facility", fields: [target_facility_id], references: [id])
+  target_doctor        users?                       @relation("care_referrals_target_doctor", fields: [target_doctor_id], references: [id])
+  initiator            users                        @relation("care_referrals_initiator", fields: [initiated_by_user_id], references: [id])
+  consent              care_referral_consents?
+  companion_share      care_referral_companion_shares?
+  events               care_referral_events[]
+
+  @@index([patient_id, status])
+  @@index([target_doctor_id, status])
+  @@index([target_facility_id, status])
+  @@index([source_doctor_id, status])
+  @@index([requested_at(sort: Desc)])
+}
+
+model care_referral_consents {
+  id                 String         @id @db.Uuid
+  referral_id        String         @unique @db.Uuid
+  patient_id         String         @db.Uuid
+  is_consent_enabled Boolean        @default(false)
+  consented_at       DateTime?
+  revoked_at         DateTime?
+  consent_version    String         @default("1.0")
+  created_at         DateTime       @default(now())
+  updated_at         DateTime       @default(now())
+
+  referral           care_referrals @relation(fields: [referral_id], references: [id], onDelete: Cascade)
+  patient            users          @relation(fields: [patient_id], references: [id])
+
+  @@index([patient_id, is_consent_enabled])
+}
+
+model care_referral_events {
+  id               String                   @id @db.Uuid
+  referral_id      String                   @db.Uuid
+  actor_user_id    String?                  @db.Uuid
+  event_type       care_referral_event_type
+  occurred_at      DateTime                 @default(now())
+  safe_reason_code String?
+  created_at       DateTime                 @default(now())
+
+  referral         care_referrals           @relation(fields: [referral_id], references: [id], onDelete: Cascade)
+  actor            users?                   @relation(fields: [actor_user_id], references: [id])
+
+  @@index([referral_id, occurred_at])
+  @@index([actor_user_id, occurred_at])
+}
+
+model care_referral_companion_shares {
+  id                    String         @id @db.Uuid
+  referral_id           String         @unique @db.Uuid
+  patient_id            String         @db.Uuid
+  is_enabled            Boolean        @default(false)
+  share_target_facility Boolean        @default(false)
+  enabled_at            DateTime?
+  revoked_at            DateTime?
+  created_at            DateTime       @default(now())
+  updated_at            DateTime       @default(now())
+
+  referral              care_referrals @relation(fields: [referral_id], references: [id], onDelete: Cascade)
+  patient               users          @relation(fields: [patient_id], references: [id])
+
+  @@index([patient_id, is_enabled])
 }

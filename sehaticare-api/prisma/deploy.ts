@@ -28,7 +28,8 @@ export const DEPENDENCY_ORDERED_MIGRATIONS: string[] = [
   '20260818090000_hiv_care_monitoring',
   '20260819090000_art_care_plan_adherence',
   '20260820090000_art_side_effect_stock_refill_support',
-  '20260821090000_care_signals_follow_up_escalation'
+  '20260821090000_care_signals_follow_up_escalation',
+  '20260822090000_confidential_referral_service_navigation'
 ];
 
 interface DatabaseState {

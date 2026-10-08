@@ -231,9 +231,32 @@ export function refreshSessionRequest() {
   });
 }
 
-export function logoutRequest() {
+export function logoutRequest(options?: { keepalive?: boolean }) {
   return apiFetch<void>('/auth/logout', {
     method: 'POST',
-    headers: csrfHeaders()
+    headers: csrfHeaders(),
+    ...(options?.keepalive ? { keepalive: true } : {})
   });
+}
+
+export function getPrivacyPreferencesRequest(token: string) {
+  return apiFetch<import('../types/privacy').PrivacyPreferences>('/me/privacy-preferences', {}, { token });
+}
+
+export function updatePrivacyPreferencesRequest(token: string, body: import('../types/privacy').PrivacyPreferencesPatch) {
+  return apiFetch<import('../types/privacy').PrivacyPreferences>('/me/privacy-preferences', {
+    method: 'PATCH',
+    body: JSON.stringify(body)
+  }, { token });
+}
+
+export function reauthenticateRequest(token: string, password: string) {
+  return apiFetch<{ ok: boolean; reauthenticated_at: string; expires_in_seconds: number }>(
+    '/auth/re-authenticate',
+    {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    },
+    { token }
+  );
 }

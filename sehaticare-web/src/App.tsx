@@ -15,6 +15,7 @@ import { DoctorConsultationHistory } from './pages/doctor/DoctorConsultationHist
 import { PatientEducationDetail } from './pages/PatientEducationDetail';
 import { PatientEducationList } from './pages/PatientEducationList';
 import { ProtectedRoute } from './routes/ProtectedRoute';
+import { PrivacyProvider } from './context/PrivacyContext';
 import { useAuth } from './context/AuthContext';
 import { getDashboardPath } from './lib/roles';
 import { TextToSpeechReader } from './components/accessibility/TextToSpeechReader';
@@ -58,7 +59,7 @@ function HomeRedirect() {
 
 export default function App() {
   return (
-    <>
+    <PrivacyProvider>
       <Routes>
         <Route path="/" element={<PublicLandingPage />} />
         <Route path="/edukasi" element={<PublicContentPage />} />
@@ -159,6 +160,6 @@ export default function App() {
       <TextToSpeechReader />
       <BackToTopButton />
       <MobileInstallPrompt />
-    </>
+    </PrivacyProvider>
   );
 }

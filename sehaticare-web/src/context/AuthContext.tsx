@@ -11,16 +11,45 @@ interface AuthContextValue {
   anonymousLogin: (loginId: string, password: string) => Promise<AuthResponse>;
   logout: (redirect?: boolean) => void;
   handleUnauthorized: () => void;
+  isPrivacyLocked: () => boolean;
+  setPrivacyLock: () => void;
+  clearPrivacyLock: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const LEGACY_STORAGE_KEY = 'sehaticare.auth';
+export const PRIVACY_LOCK_KEY = 'sehaticare_privacy_locked';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [initializing, setInitializing] = useState(true);
   const refreshInFlight = useRef<Promise<AuthResponse> | null>(null);
+
+  const isPrivacyLocked = useCallback(() => {
+    try {
+      return sessionStorage.getItem(PRIVACY_LOCK_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const setPrivacyLock = useCallback(() => {
+    try {
+      sessionStorage.setItem(PRIVACY_LOCK_KEY, '1');
+    } catch {
+      // storage unavailable
+    }
+  }, []);
+
+  const clearPrivacyLock = useCallback(() => {
+    try {
+      sessionStorage.removeItem(PRIVACY_LOCK_KEY);
+      localStorage.removeItem(PRIVACY_LOCK_KEY);
+    } catch {
+      // storage unavailable
+    }
+  }, []);
 
   const refreshSession = useCallback(() => {
     if (!refreshInFlight.current) {
@@ -33,6 +62,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     localStorage.removeItem(LEGACY_STORAGE_KEY);
+    if (isPrivacyLocked()) {
+      setUser(null);
+      setToken(null);
+      setInitializing(false);
+      return;
+    }
+
     let active = true;
     void refreshSession()
       .then((response) => {
@@ -51,19 +87,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       active = false;
     };
-  }, [refreshSession]);
+  }, [isPrivacyLocked, refreshSession]);
 
   const login = useCallback(async (email: string, password: string) => {
     const response = await loginRequest(email, password);
+    clearPrivacyLock();
     setUser(response.user);
     setToken(response.access_token);
     return response;
-  }, []);
+  }, [clearPrivacyLock]);
 
   const anonymousLogin = useCallback(async (loginId: string, password: string) => {
     const response = await anonymousLoginRequest(loginId, password);
-    setUser(response.user); setToken(response.access_token); return response;
-  }, []);
+    clearPrivacyLock();
+    setUser(response.user);
+    setToken(response.access_token);
+    return response;
+  }, [clearPrivacyLock]);
 
   const logout = useCallback((redirect = true) => {
     setUser(null);
@@ -94,9 +134,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       anonymousLogin,
       logout,
-      handleUnauthorized
+      handleUnauthorized,
+      isPrivacyLocked,
+      setPrivacyLock,
+      clearPrivacyLock
     }),
-    [user, token, initializing, login, anonymousLogin, logout, handleUnauthorized]
+    [user, token, initializing, login, anonymousLogin, logout, handleUnauthorized, isPrivacyLocked, setPrivacyLock, clearPrivacyLock]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

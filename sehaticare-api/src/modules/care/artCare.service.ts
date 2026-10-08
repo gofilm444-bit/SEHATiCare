@@ -3,6 +3,7 @@ import { prisma } from '../../db/prisma';
 import { recordAuditLog } from '../../utils/audit';
 import { hasDoctorPatientRelationship } from './hivCare.service';
 import { computeRefillStatus } from './artCare.presenter';
+import { syncSevereSideEffectSignal, syncRefillStockSignal } from './careSignals.service';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -640,6 +641,8 @@ export async function createPatientSideEffect(input: {
     }
   });
 
+  await syncSevereSideEffectSignal(entry.id);
+
   return entry;
 }
 
@@ -698,6 +701,8 @@ export async function updatePatientSideEffect(input: {
       correlation_id: input.correlationId
     }
   });
+
+  await syncSevereSideEffectSignal(updated.id);
 
   return updated;
 }
@@ -817,6 +822,8 @@ export async function recordPatientMedicationStock(input: {
       correlation_id: input.correlationId
     }
   });
+
+  await syncRefillStockSignal(input.patientUserId);
 
   return stock;
 }

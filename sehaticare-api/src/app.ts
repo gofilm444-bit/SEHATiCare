@@ -26,6 +26,7 @@ import professionalRolesRoutes from './modules/stage4/professionalRoles.routes';
 import companionAssignmentsRoutes from './modules/stage4/companionAssignments.routes';
 import hivCareRoutes from './modules/care/hivCare.routes';
 import artCareRoutes from './modules/care/artCare.routes';
+import careSignalsRoutes from './modules/care/careSignals.routes';
 import { env } from './config/env';
 import { isPrismaConnectionError } from './db/prismaErrors';
 import { ZodError } from 'zod';
@@ -177,6 +178,7 @@ export async function buildApp() {
   app.register(companionAssignmentsRoutes);
   app.register(hivCareRoutes);
   app.register(artCareRoutes);
+  app.register(careSignalsRoutes);
   app.register(educationRoutes, { prefix: '/education' });
   app.register(consultationsRoutes, { prefix: '/consultations' });
   app.register(doctorRoutes, { prefix: '/doctor' });

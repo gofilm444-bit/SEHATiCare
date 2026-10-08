@@ -577,6 +577,12 @@ model users {
   art_medication_stocks_as_patient                        art_medication_stocks[]         @relation("art_stock_patient")
   art_refill_setting                                      art_refill_settings?
   art_refill_support_consent                              art_refill_support_consents?
+  care_signals_as_patient                                 care_signals[]                  @relation("care_signals_patient")
+  care_signals_acknowledged                               care_signals[]                  @relation("care_signals_acknowledged_by")
+  care_signals_resolved                                   care_signals[]                  @relation("care_signals_resolved_by")
+  care_signals_dismissed                                  care_signals[]                  @relation("care_signals_dismissed_by")
+  care_signal_actions                                     care_signal_actions[]           @relation("care_signal_action_actor")
+  care_follow_up_support_consent                          care_follow_up_support_consents?
 }
 
 model professional_outreach_cases {
@@ -1792,5 +1798,102 @@ model art_refill_support_consents {
   @@index([patient_user_id, is_consent_enabled])
 }
 
+enum care_signal_type {
+  SEVERE_SIDE_EFFECT_REPORTED
+  FOLLOW_UP_OVERDUE
+  REFILL_NEEDS_ATTENTION
+  PATIENT_REQUESTED_CLINICAL_CONTACT
+  PATIENT_REQUESTED_COMPANION_SUPPORT
+}
 
+enum care_signal_scope {
+  CLINICAL
+  SUPPORT
+}
 
+enum care_signal_priority {
+  ROUTINE
+  ATTENTION
+  PRIORITY
+}
+
+enum care_signal_status {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+enum care_signal_action_type {
+  ACKNOWLEDGED
+  CONTACT_ATTEMPTED
+  CONTACTED
+  FOLLOW_UP_SCHEDULED
+  ESCALATED_TO_CLINICAL
+  RESOLVED
+  DISMISSED
+}
+
+model care_signals {
+  id               String               @id @db.Uuid
+  public_id        String               @unique @default(dbgenerated("'sig_' || replace(gen_random_uuid()::text, '-', '')"))
+  patient_id       String               @db.Uuid
+  signal_type      care_signal_type
+  signal_scope     care_signal_scope
+  priority         care_signal_priority
+  status           care_signal_status   @default(OPEN)
+  source_type      String
+  source_id        String?              @db.Uuid
+  detected_at      DateTime             @default(now())
+  acknowledged_at  DateTime?
+  acknowledged_by  String?              @db.Uuid
+  resolved_at      DateTime?
+  resolved_by      String?              @db.Uuid
+  dismissed_at     DateTime?
+  dismissed_by     String?              @db.Uuid
+  metadata         Json?
+  created_at       DateTime             @default(now())
+  updated_at       DateTime             @default(now())
+
+  patient              users                  @relation("care_signals_patient", fields: [patient_id], references: [id])
+  acknowledged_by_user users?                 @relation("care_signals_acknowledged_by", fields: [acknowledged_by], references: [id], onDelete: SetNull)
+  resolved_by_user     users?                 @relation("care_signals_resolved_by", fields: [resolved_by], references: [id], onDelete: SetNull)
+  dismissed_by_user    users?                 @relation("care_signals_dismissed_by", fields: [dismissed_by], references: [id], onDelete: SetNull)
+  actions              care_signal_actions[]
+
+  @@index([patient_id, status])
+  @@index([signal_type, status])
+  @@index([signal_scope, status, priority])
+  @@index([source_type, source_id, status])
+  @@index([detected_at(sort: Desc)])
+}
+
+model care_signal_actions {
+  id                 String                  @id @db.Uuid
+  care_signal_id     String                  @db.Uuid
+  actor_user_id      String                  @db.Uuid
+  action_type        care_signal_action_type
+  occurred_at        DateTime                @default(now())
+  next_follow_up_at  DateTime?
+  created_at         DateTime                @default(now())
+
+  care_signal care_signals @relation(fields: [care_signal_id], references: [id], onDelete: Cascade)
+  actor       users        @relation("care_signal_action_actor", fields: [actor_user_id], references: [id])
+
+  @@index([care_signal_id, occurred_at])
+  @@index([actor_user_id, occurred_at])
+}
+
+model care_follow_up_support_consents {
+  id                 String    @id @db.Uuid
+  patient_id         String    @unique @db.Uuid
+  is_consent_enabled Boolean   @default(false)
+  consented_at       DateTime?
+  revoked_at         DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @default(now())
+
+  patient            users     @relation(fields: [patient_id], references: [id])
+
+  @@index([patient_id, is_consent_enabled])
+}

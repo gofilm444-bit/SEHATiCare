@@ -3,6 +3,7 @@ import { prisma } from '../../db/prisma';
 import { recordAuditLog } from '../../utils/audit';
 import { hasDoctorPatientRelationship } from './hivCare.service';
 import { computeOverdueBucket } from './careSignals.presenter';
+import { createReferralFromCareSignalEscalation } from './serviceNavigation.service';
 
 export class CareSignalError extends Error {
   constructor(
@@ -1248,6 +1249,12 @@ export async function recordCompanionSignalAction(input: {
     // Escalate to clinical scope and raise priority to PRIORITY
     updateData.signal_scope = 'CLINICAL';
     updateData.priority = 'PRIORITY';
+    // AG-08: Create separate referral/handoff request without granting companion clinical access
+    await createReferralFromCareSignalEscalation({
+      actorUserId: input.companionUserId,
+      careSignalId: signal.id,
+      correlationId: input.correlationId
+    });
   }
 
   await prisma.care_signals.update({

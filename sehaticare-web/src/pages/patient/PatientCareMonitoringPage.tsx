@@ -14,6 +14,8 @@ import { PageHeader, StatusBadge } from '../../components/ui/patterns';
 import { useAuth } from '../../context/AuthContext';
 import { PatientArtCareSection } from '../care/PatientArtCareSection';
 import { PatientCareSignalsSection } from '../care/PatientCareSignalsSection';
+import { PatientServiceNavigationSection } from '../care/PatientServiceNavigationSection';
+import { PatientReferralsSection } from '../care/PatientReferralsSection';
 
 export function PatientCareMonitoringPage() {
   const { token } = useAuth();
@@ -202,6 +204,12 @@ export function PatientCareMonitoringPage() {
 
       {/* PERLU TINDAK LANJUT & DUKUNGAN */}
       {token ? <PatientCareSignalsSection token={token} /> : null}
+
+      {/* RUJUKAN & TRANSFER LAYANAN */}
+      <PatientReferralsSection />
+
+      {/* TEMUKAN LAYANAN KESEHATAN */}
+      <PatientServiceNavigationSection />
 
       {/* RENCANA PERAWATAN ART & KEPATUHAN OBAT */}
       {isEnrolled && token ? (

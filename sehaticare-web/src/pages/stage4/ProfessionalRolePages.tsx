@@ -26,6 +26,7 @@ import {
   CompanionRefillSupportResponse
 } from '../../api/artCare';
 import { CompanionFollowUpSection } from './CompanionFollowUpSection';
+import { CompanionReferralSupportSection } from './CompanionReferralSupportSection';
 
 type Assignment = {
   public_id: string;
@@ -172,6 +173,9 @@ export function CompanionAssignmentsPage() {
 
       {/* Antrean Dukungan Tindak Lanjut Pasien */}
       <CompanionFollowUpSection />
+
+      {/* Dukungan Rujukan & Navigasi Layanan Pasien */}
+      <CompanionReferralSupportSection />
 
       {/* Longitudinal Care Section: Pasien Dampingan */}
       <section aria-labelledby="companion-roster-title" className="space-y-4">

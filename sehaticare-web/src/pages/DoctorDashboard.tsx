@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { useAuth } from '../context/AuthContext';
 import { DoctorCareSignalsQueue } from './doctor/DoctorCareSignalsQueue';
+import { DoctorReferralsSection } from './doctor/DoctorReferralsSection';
 
 type QueueItem = {
   id: string;
@@ -67,6 +68,8 @@ export function DoctorDashboard() {
       </div>
 
       <DoctorCareSignalsQueue />
+
+      <DoctorReferralsSection />
 
       <Card>
         <CardHeader>

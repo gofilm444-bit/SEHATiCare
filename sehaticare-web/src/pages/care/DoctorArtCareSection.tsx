@@ -3,9 +3,13 @@ import {
   createDoctorPatientArtCare,
   getDoctorPatientAdherence,
   getDoctorPatientArtCare,
+  getDoctorPatientSideEffects,
+  getDoctorPatientStockSummary,
   updateDoctorPatientArtCare,
   PatientArtCarePlan,
-  AdherenceSummary
+  AdherenceSummary,
+  SideEffectEntry,
+  PatientStockResponse
 } from '../../api/artCare';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -29,6 +33,8 @@ export function DoctorArtCareSection({ token, patientPublicId }: Props) {
   const [activePlan, setActivePlan] = useState<PatientArtCarePlan | null>(null);
   const [history, setHistory] = useState<PatientArtCarePlan[]>([]);
   const [adherence, setAdherence] = useState<AdherenceSummary | null>(null);
+  const [sideEffects, setSideEffects] = useState<SideEffectEntry[]>([]);
+  const [stockSummary, setStockSummary] = useState<PatientStockResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -54,13 +60,17 @@ export function DoctorArtCareSection({ token, patientPublicId }: Props) {
     setLoading(true);
     setError('');
     try {
-      const [artRes, adhRes] = await Promise.all([
+      const [artRes, adhRes, seRes, stkRes] = await Promise.all([
         getDoctorPatientArtCare(token, patientPublicId),
-        getDoctorPatientAdherence(token, patientPublicId, 7).catch(() => null)
+        getDoctorPatientAdherence(token, patientPublicId, 7).catch(() => null),
+        getDoctorPatientSideEffects(token, patientPublicId).catch(() => ({ items: [] })),
+        getDoctorPatientStockSummary(token, patientPublicId).catch(() => null)
       ]);
       setActivePlan(artRes.active_plan || null);
       setHistory(artRes.history || []);
       setAdherence(adhRes?.summary || null);
+      setSideEffects(seRes?.items || []);
+      setStockSummary(stkRes || null);
     } catch (err: any) {
       setError(err.message || 'Gagal memuat rencana ART pasien.');
     } finally {
@@ -467,6 +477,137 @@ export function DoctorArtCareSection({ token, patientPublicId }: Props) {
           </CardContent>
         </Card>
       ) : null}
+
+      {/* CATATAN EFEK SAMPING PASIEN (DOKTER VIEW - READ ONLY) */}
+      <Card className="border-teal-200">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm text-teal-950 flex items-center gap-2">
+              <Icon name="activity" className="h-4 w-4 text-teal-600" />
+              Catatan Keluhan / Efek Samping Pasien ({sideEffects.length})
+            </CardTitle>
+          </div>
+          <CardDescription className="text-slate-500 text-xs">
+            Laporan keluhan mandiri pasien untuk bahan pertimbangan evaluasi klinis rejimen.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {sideEffects.length === 0 ? (
+            <p className="text-xs text-slate-500 py-3 text-center bg-slate-50 rounded-lg">
+              Belum ada keluhan atau efek samping yang dilaporkan pasien.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {sideEffects.map((se) => (
+                <div key={se.public_id} className="rounded-lg border border-slate-200 p-3 text-xs bg-slate-50/50 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <strong className="text-slate-900">{se.symptom_name}</strong>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge
+                        variant={
+                          se.severity === 'SEVERE'
+                            ? 'default'
+                            : se.severity === 'MODERATE'
+                            ? 'info'
+                            : 'neutral'
+                        }
+                      >
+                        {se.severity === 'SEVERE'
+                          ? 'Berat'
+                          : se.severity === 'MODERATE'
+                          ? 'Sedang'
+                          : 'Ringan'}
+                      </StatusBadge>
+                      <StatusBadge variant={se.status === 'RESOLVED' ? 'success' : 'info'}>
+                        {se.status === 'RESOLVED' ? 'Selesai' : 'Aktif'}
+                      </StatusBadge>
+                    </div>
+                  </div>
+                  {se.patient_note ? (
+                    <p className="text-slate-600 italic">"{se.patient_note}"</p>
+                  ) : null}
+                  <div className="text-2xs text-slate-400 flex items-center justify-between pt-1 border-t border-slate-200/60">
+                    <span>
+                      Dilaporkan: {new Date(se.occurred_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                    {se.resolved_at ? (
+                      <span>
+                        Selesai: {new Date(se.resolved_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* STATUS PERSEDIAAN & REFILL PASIEN (DOKTER VIEW - READ ONLY) */}
+      <Card className="border-amber-200">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm text-amber-950 flex items-center gap-2">
+              <Icon name="activity" className="h-4 w-4 text-amber-600" />
+              Status Persediaan Obat & Kesiapan Refill Pasien
+            </CardTitle>
+            <StatusBadge
+              variant={
+                stockSummary?.refill_status?.refill_status === 'OK'
+                  ? 'success'
+                  : stockSummary?.refill_status?.refill_status === 'DUE_SOON'
+                  ? 'info'
+                  : stockSummary?.refill_status?.refill_status === 'NEEDS_ATTENTION'
+                  ? 'default'
+                  : 'neutral'
+              }
+            >
+              {stockSummary?.refill_status?.refill_status === 'OK'
+                ? 'Persediaan Aman'
+                : stockSummary?.refill_status?.refill_status === 'DUE_SOON'
+                ? 'Perlu Dijadwalkan'
+                : stockSummary?.refill_status?.refill_status === 'NEEDS_ATTENTION'
+                ? 'Perhatian Segera'
+                : 'Belum Ada Data'}
+            </StatusBadge>
+          </div>
+          <CardDescription className="text-slate-500 text-xs">
+            Data persediaan obat mandiri yang dilaporkan pasien.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid gap-3 sm:grid-cols-2 text-xs">
+            <div className="rounded-lg bg-slate-50 p-3">
+              <span className="text-slate-500 block">Estimasi Sisa Obat</span>
+              <strong className="text-base text-slate-900 mt-1 block">
+                {stockSummary?.refill_status?.estimated_days_remaining !== null && stockSummary?.refill_status?.estimated_days_remaining !== undefined
+                  ? `${stockSummary.refill_status.estimated_days_remaining} Hari Tersisa`
+                  : stockSummary?.current_stock?.quantity_remaining !== null && stockSummary?.current_stock?.quantity_remaining !== undefined
+                  ? `${stockSummary.current_stock.quantity_remaining} ${stockSummary.current_stock.unit || 'unit'}`
+                  : 'Belum dilaporkan'}
+              </strong>
+              <span className="text-2xs text-slate-400">
+                {stockSummary?.refill_status?.last_recorded_at
+                  ? `Pembaruan: ${new Date(stockSummary.refill_status.last_recorded_at).toLocaleDateString('id-ID')}`
+                  : '—'}
+              </span>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <span className="text-slate-500 block">Jadwal Kontrol Terdekat</span>
+              <strong className="text-sm text-slate-900 mt-1 block truncate">
+                {stockSummary?.refill_status?.next_control_schedule
+                  ? new Date(stockSummary.refill_status.next_control_schedule.starts_at).toLocaleDateString('id-ID')
+                  : 'Belum ada jadwal kontrol'}
+              </strong>
+              <span className="text-2xs text-slate-400">
+                {stockSummary?.refill_status?.next_control_schedule
+                  ? stockSummary.refill_status.next_control_schedule.timezone
+                  : '—'}
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* RIWAYAT TERAPI SEBELUMNYA */}
       {history.length > 0 ? (

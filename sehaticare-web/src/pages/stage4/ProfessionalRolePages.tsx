@@ -22,6 +22,8 @@ import { useAuth } from '../../context/AuthContext';
 import {
   getCompanionAdherenceSupport,
   CompanionAdherenceSupportResponse,
+  getCompanionRefillSupport,
+  CompanionRefillSupportResponse
 } from '../../api/artCare';
 
 type Assignment = {
@@ -120,6 +122,30 @@ export function CompanionAssignmentsPage() {
       setSupportSummaries((prev) => ({
         ...prev,
         [patientPublicId]: { loading: false, error: err.message || 'Gagal memuat ringkasan dukungan' }
+      }));
+    }
+  };
+
+  const [refillSummaries, setRefillSummaries] = useState<
+    Record<string, { loading?: boolean; data?: CompanionRefillSupportResponse; error?: string }>
+  >({});
+
+  const handleLoadRefillSupport = async (patientPublicId: string) => {
+    if (!token) return;
+    setRefillSummaries((prev) => ({
+      ...prev,
+      [patientPublicId]: { loading: true }
+    }));
+    try {
+      const res = await getCompanionRefillSupport(token, patientPublicId);
+      setRefillSummaries((prev) => ({
+        ...prev,
+        [patientPublicId]: { loading: false, data: res }
+      }));
+    } catch (err: any) {
+      setRefillSummaries((prev) => ({
+        ...prev,
+        [patientPublicId]: { loading: false, error: err.message || 'Gagal memuat status refill' }
       }));
     }
   };
@@ -253,6 +279,89 @@ export function CompanionAssignmentsPage() {
                     {supportSummaries[item.patient_public_id]?.error ? (
                       <p className="text-2xs text-rose-600">
                         {supportSummaries[item.patient_public_id].error}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {/* Privacy-Safe Refill Support Summary */}
+                  <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-700">Dukungan Pengingat Refill:</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs h-7 px-2"
+                        disabled={refillSummaries[item.patient_public_id]?.loading}
+                        onClick={() => void handleLoadRefillSupport(item.patient_public_id)}
+                      >
+                        {refillSummaries[item.patient_public_id]?.loading
+                          ? 'Memuat…'
+                          : refillSummaries[item.patient_public_id]?.data
+                          ? 'Perbarui Status'
+                          : 'Cek Status Refill'}
+                      </Button>
+                    </div>
+
+                    {refillSummaries[item.patient_public_id]?.data ? (
+                      !refillSummaries[item.patient_public_id].data?.support_consent_enabled ? (
+                        <div className="rounded-lg bg-slate-50 border border-slate-200 p-2.5 text-xs text-slate-600">
+                          <p className="font-medium text-slate-700">
+                            Pasien belum mengaktifkan dukungan pengingat refill untuk pendamping.
+                          </p>
+                          <p className="text-2xs text-slate-500 mt-0.5">
+                            Privasi klinis terlindungi: pendamping tidak menerima nama obat, dosis, atau riwayat efek samping.
+                          </p>
+                        </div>
+                      ) : (
+                        <div
+                          className={`rounded-lg border p-2.5 text-xs space-y-1 ${
+                            refillSummaries[item.patient_public_id].data?.summary?.refill_status === 'NEEDS_ATTENTION'
+                              ? 'bg-rose-50/70 border-rose-200 text-rose-950'
+                              : refillSummaries[item.patient_public_id].data?.summary?.refill_status === 'DUE_SOON'
+                              ? 'bg-amber-50/70 border-amber-200 text-amber-950'
+                              : 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between font-semibold">
+                            <span>Status Kesiapan Refill</span>
+                            <StatusBadge
+                              variant={
+                                refillSummaries[item.patient_public_id].data?.summary?.refill_status === 'OK'
+                                  ? 'success'
+                                  : refillSummaries[item.patient_public_id].data?.summary?.refill_status === 'DUE_SOON'
+                                  ? 'info'
+                                  : refillSummaries[item.patient_public_id].data?.summary?.refill_status === 'NEEDS_ATTENTION'
+                                  ? 'default'
+                                  : 'neutral'
+                              }
+                            >
+                              {refillSummaries[item.patient_public_id].data?.summary?.refill_status === 'OK'
+                                ? 'Persediaan Aman'
+                                : refillSummaries[item.patient_public_id].data?.summary?.refill_status === 'DUE_SOON'
+                                ? 'Perlu Dukungan Refill'
+                                : refillSummaries[item.patient_public_id].data?.summary?.refill_status === 'NEEDS_ATTENTION'
+                                ? 'Perlu Perhatian Segera'
+                                : 'Belum Diketahui'}
+                            </StatusBadge>
+                          </div>
+                          <p className="text-2xs">
+                            Perkiraan sisa waktu:{' '}
+                            <strong>
+                              {refillSummaries[item.patient_public_id].data?.summary?.coarse_days_bucket_label || 'Belum diketahui'}
+                            </strong>
+                          </p>
+                          {refillSummaries[item.patient_public_id].data?.summary?.next_control_schedule ? (
+                            <p className="text-2xs text-slate-600 border-t border-slate-200/60 pt-1 mt-1">
+                              Jadwal kontrol/refill: {new Date(refillSummaries[item.patient_public_id].data!.summary!.next_control_schedule!.starts_at).toLocaleDateString('id-ID')}
+                            </p>
+                          ) : null}
+                        </div>
+                      )
+                    ) : null}
+
+                    {refillSummaries[item.patient_public_id]?.error ? (
+                      <p className="text-2xs text-rose-600">
+                        {refillSummaries[item.patient_public_id].error}
                       </p>
                     ) : null}
                   </div>

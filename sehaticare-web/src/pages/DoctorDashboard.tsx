@@ -5,6 +5,7 @@ import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { useAuth } from '../context/AuthContext';
+import { DoctorCareSignalsQueue } from './doctor/DoctorCareSignalsQueue';
 
 type QueueItem = {
   id: string;
@@ -64,6 +65,8 @@ export function DoctorDashboard() {
         </div>
         <Badge variant="success">DOKTER</Badge>
       </div>
+
+      <DoctorCareSignalsQueue />
 
       <Card>
         <CardHeader>

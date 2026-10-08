@@ -13,6 +13,7 @@ import { Icon } from '../../components/ui/icons';
 import { PageHeader, StatusBadge } from '../../components/ui/patterns';
 import { useAuth } from '../../context/AuthContext';
 import { PatientArtCareSection } from '../care/PatientArtCareSection';
+import { PatientCareSignalsSection } from '../care/PatientCareSignalsSection';
 
 export function PatientCareMonitoringPage() {
   const { token } = useAuth();
@@ -198,6 +199,9 @@ export function PatientCareMonitoringPage() {
           </Card>
         )}
       </section>
+
+      {/* PERLU TINDAK LANJUT & DUKUNGAN */}
+      {token ? <PatientCareSignalsSection token={token} /> : null}
 
       {/* RENCANA PERAWATAN ART & KEPATUHAN OBAT */}
       {isEnrolled && token ? (

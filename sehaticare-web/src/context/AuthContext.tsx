@@ -17,8 +17,15 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+import {
+  isPrivacyLocked as checkPrivacyLocked,
+  setPrivacyLockMarker,
+  clearPrivacyLockMarker,
+  PRIVACY_LOCK_KEY
+} from '../lib/privacyLockStorage';
+export { PRIVACY_LOCK_KEY };
+
 const LEGACY_STORAGE_KEY = 'sehaticare.auth';
-export const PRIVACY_LOCK_KEY = 'sehaticare_privacy_locked';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -27,28 +34,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshInFlight = useRef<Promise<AuthResponse> | null>(null);
 
   const isPrivacyLocked = useCallback(() => {
-    try {
-      return sessionStorage.getItem(PRIVACY_LOCK_KEY) === '1';
-    } catch {
-      return false;
-    }
+    return checkPrivacyLocked();
   }, []);
 
   const setPrivacyLock = useCallback(() => {
-    try {
-      sessionStorage.setItem(PRIVACY_LOCK_KEY, '1');
-    } catch {
-      // storage unavailable
-    }
+    setPrivacyLockMarker();
   }, []);
 
   const clearPrivacyLock = useCallback(() => {
-    try {
-      sessionStorage.removeItem(PRIVACY_LOCK_KEY);
-      localStorage.removeItem(PRIVACY_LOCK_KEY);
-    } catch {
-      // storage unavailable
-    }
+    clearPrivacyLockMarker();
   }, []);
 
   const refreshSession = useCallback(() => {
@@ -109,6 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setToken(null);
     localStorage.removeItem(LEGACY_STORAGE_KEY);
+    setPrivacyLockMarker();
     void logoutRequest()
       .catch(() => undefined)
       .finally(() => {
@@ -117,6 +112,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleUnauthorized = useCallback(() => {
+    if (checkPrivacyLocked()) {
+      logout(true);
+      return;
+    }
     void refreshSession()
       .then((response) => {
         setUser(response.user);

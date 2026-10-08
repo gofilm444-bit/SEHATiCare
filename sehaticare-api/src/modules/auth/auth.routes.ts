@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { FastifyInstance } from 'fastify';
 import { authGuard } from '../../middlewares/auth';
 import { anonymousLoginSchema, loginSchema, otpRequestSchema, otpVerifySchema } from './auth.validators';
@@ -392,9 +393,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
             properties: {
               ok: { type: 'boolean' },
               reauthenticated_at: { type: 'string', format: 'date-time' },
-              expires_in_seconds: { type: 'number' }
+              expires_in_seconds: { type: 'number' },
+              proof_token: { type: 'string' }
             },
-            required: ['ok', 'reauthenticated_at', 'expires_in_seconds']
+            required: ['ok', 'reauthenticated_at', 'expires_in_seconds', 'proof_token']
           }
         }
       }
@@ -419,11 +421,67 @@ export default async function authRoutes(fastify: FastifyInstance) {
         actorRole: request.user!.role,
         action: 'PRIVACY_REAUTH_SUCCESS'
       });
+      const proofToken = fastify.jwt.sign(
+        {
+          purpose: 'PRIVACY_REAUTH',
+          userId: request.user!.userId,
+          role: request.user!.role,
+          sessionVersion: request.user!.sessionVersion,
+          nonce: randomUUID()
+        },
+        { expiresIn: '5m' }
+      );
       return reply.send({
         ok: true,
         reauthenticated_at: now.toISOString(),
-        expires_in_seconds: 300
+        expires_in_seconds: 300,
+        proof_token: proofToken
       });
+    }
+  );
+
+  fastify.post(
+    '/verify-reauth',
+    {
+      preHandler: [authGuard],
+      schema: {
+        tags: ['Auth'],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          properties: { proof_token: { type: 'string', minLength: 1 } },
+          required: ['proof_token'],
+          additionalProperties: false
+        },
+        response: {
+          ...standardErrorResponses,
+          200: {
+            type: 'object',
+            properties: { valid: { type: 'boolean' } },
+            required: ['valid']
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const body = request.body as { proof_token?: string };
+      try {
+        const decoded = fastify.jwt.verify<{
+          purpose?: string;
+          userId?: string;
+          sessionVersion?: number;
+        }>(body.proof_token!);
+        if (
+          decoded.purpose !== 'PRIVACY_REAUTH' ||
+          decoded.userId !== request.user!.userId ||
+          decoded.sessionVersion !== request.user!.sessionVersion
+        ) {
+          return reply.status(403).send({ message: 'Bukti verifikasi tidak cocok dengan sesi aktif' });
+        }
+        return reply.send({ valid: true });
+      } catch {
+        return reply.status(401).send({ message: 'Bukti verifikasi telah kedaluwarsa atau tidak valid' });
+      }
     }
   );
 }

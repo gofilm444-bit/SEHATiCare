@@ -8,6 +8,8 @@ export type JwtUserPayload = {
   role: 'PASIEN' | 'DOKTER' | 'ADMIN' | 'AI' | 'COUNSELOR' | 'COMPLAINT_OFFICER' | 'SUPERVISOR';
   sessionVersion: number;
   sessionId?: string;
+  purpose?: string;
+  nonce?: string;
 };
 
 declare module 'fastify' {

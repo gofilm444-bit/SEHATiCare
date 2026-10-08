@@ -250,8 +250,12 @@ export function updatePrivacyPreferencesRequest(token: string, body: import('../
   }, { token });
 }
 
+export function getSelfUserRequest(token: string) {
+  return apiFetch<import('../types/auth').User>('/auth/me', {}, { token });
+}
+
 export function reauthenticateRequest(token: string, password: string) {
-  return apiFetch<{ ok: boolean; reauthenticated_at: string; expires_in_seconds: number }>(
+  return apiFetch<{ ok: boolean; reauthenticated_at: string; expires_in_seconds: number; proof_token: string }>(
     '/auth/re-authenticate',
     {
       method: 'POST',
@@ -260,3 +264,15 @@ export function reauthenticateRequest(token: string, password: string) {
     { token }
   );
 }
+
+export function verifyReauthProofRequest(token: string, proofToken: string) {
+  return apiFetch<{ valid: boolean }>(
+    '/auth/verify-reauth',
+    {
+      method: 'POST',
+      body: JSON.stringify({ proof_token: proofToken })
+    },
+    { token }
+  );
+}
+

@@ -1,7 +1,14 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { getPrivacyPreferencesRequest, logoutRequest, reauthenticateRequest, updatePrivacyPreferencesRequest } from '../api/client';
+import {
+  getPrivacyPreferencesRequest,
+  getSelfUserRequest,
+  logoutRequest,
+  reauthenticateRequest,
+  updatePrivacyPreferencesRequest
+} from '../api/client';
 import { useAuth } from './AuthContext';
 import { PrivacyPreferences, PrivacyPreferencesPatch } from '../types/privacy';
+import { PRIVACY_LOCK_KEY } from '../lib/privacyLockStorage';
 
 export const SESSION_CHANNEL_NAME = 'sehaticare-session';
 
@@ -10,10 +17,16 @@ export interface PrivacyContextValue {
   preferences: PrivacyPreferences;
   loadingPreferences: boolean;
   activateShield: () => void;
-  deactivateShield: () => void;
+  deactivateShield: () => Promise<void>;
   unlockWithReauth: (password: string) => Promise<boolean>;
   quickExit: () => void;
   updatePreferences: (patch: PrivacyPreferencesPatch) => Promise<void>;
+}
+
+interface ReauthProof {
+  token: string;
+  userId: string;
+  expiresAt: number;
 }
 
 const DEFAULT_PREFERENCES: PrivacyPreferences = {
@@ -32,8 +45,14 @@ export function PrivacyProvider({ children }: { children: React.ReactNode }) {
   const [isShieldActive, setIsShieldActive] = useState(false);
   const [preferences, setPreferences] = useState<PrivacyPreferences>(DEFAULT_PREFERENCES);
   const [loadingPreferences, setLoadingPreferences] = useState(false);
+  const [reauthProof, setReauthProof] = useState<ReauthProof | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
+
+  // Invalidate in-RAM re-auth proof whenever the user changes or logs out
+  useEffect(() => {
+    setReauthProof(null);
+  }, [user?.id]);
 
   // Broadcast helper - NEVER sends sensitive payload
   const broadcastEvent = useCallback((type: 'QUICK_EXIT' | 'LOGOUT' | 'PRIVACY_LOCK') => {
@@ -78,11 +97,12 @@ export function PrivacyProvider({ children }: { children: React.ReactNode }) {
 
   // Quick Exit implementation
   const quickExit = useCallback(() => {
-    // 1. Immediately hide private UI synchronously
+    // 1. Immediately hide private UI synchronously & purge re-auth proof
     setIsShieldActive(true);
+    setReauthProof(null);
     document.title = 'SEHATiCare';
 
-    // 2. Set client privacy lock marker
+    // 2. Set client privacy lock marker (browser-wide in localStorage + sessionStorage)
     setPrivacyLock();
 
     // 3. Broadcast to all open tabs with neutral payload
@@ -93,7 +113,11 @@ export function PrivacyProvider({ children }: { children: React.ReactNode }) {
     logout(false);
 
     // 5. Navigate with replace semantics to neutral landing
-    window.location.replace('/');
+    try {
+      window.location.replace('/');
+    } catch {
+      // environment without window
+    }
   }, [broadcastEvent, logout, setPrivacyLock]);
 
   // Activate Privacy Shield
@@ -104,21 +128,48 @@ export function PrivacyProvider({ children }: { children: React.ReactNode }) {
   }, [broadcastEvent]);
 
   // Deactivate Privacy Shield
-  const deactivateShield = useCallback(() => {
-    if (preferences.require_reauth_to_unlock) {
-      // Must unlock via re-auth
+  const deactivateShield = useCallback(async () => {
+    // 1. Guard against privacy-locked or unauthenticated state
+    if (isPrivacyLocked() || !token || !user) {
+      setIsShieldActive(true);
+      try {
+        window.location.replace('/');
+      } catch {}
       return;
     }
+
+    // 2. If re-auth is required, enforce valid in-RAM cryptographic proof
+    if (preferences.require_reauth_to_unlock) {
+      if (!reauthProof || reauthProof.userId !== user.id || reauthProof.expiresAt <= Date.now()) {
+        return;
+      }
+    }
+
+    // 3. Revalidate active session with backend before lifting shield to ensure session wasn't revoked elsewhere
+    try {
+      await getSelfUserRequest(token);
+    } catch {
+      // Session invalid or revoked while shielded - do NOT reveal stale private UI
+      setIsShieldActive(true);
+      logout(true);
+      return;
+    }
+
     setIsShieldActive(false);
-  }, [preferences.require_reauth_to_unlock]);
+  }, [isPrivacyLocked, preferences.require_reauth_to_unlock, token, user, reauthProof, logout]);
 
   // Unlock with password re-auth
   const unlockWithReauth = useCallback(
     async (password: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token || !user) return false;
       try {
         const res = await reauthenticateRequest(token, password);
-        if (res.ok) {
+        if (res.ok && res.proof_token) {
+          setReauthProof({
+            token: res.proof_token,
+            userId: user.id,
+            expiresAt: Date.now() + (res.expires_in_seconds || 300) * 1000
+          });
           setIsShieldActive(false);
           return true;
         }
@@ -127,7 +178,7 @@ export function PrivacyProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
     },
-    [token]
+    [token, user]
   );
 
   // Update preferences
@@ -155,9 +206,12 @@ export function PrivacyProvider({ children }: { children: React.ReactNode }) {
 
       if (data.type === 'QUICK_EXIT' || data.type === 'LOGOUT') {
         setPrivacyLock();
+        setReauthProof(null);
         setIsShieldActive(true);
         logout(false);
-        window.location.replace('/');
+        try {
+          window.location.replace('/');
+        } catch {}
       } else if (data.type === 'PRIVACY_LOCK') {
         setIsShieldActive(true);
       }
@@ -168,6 +222,27 @@ export function PrivacyProvider({ children }: { children: React.ReactNode }) {
       channelRef.current = null;
     };
   }, [logout, setPrivacyLock]);
+
+  // Cross-tab storage listener fallback (e.g., when BroadcastChannel is unsupported)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === PRIVACY_LOCK_KEY && event.newValue === '1') {
+        setReauthProof(null);
+        setIsShieldActive(true);
+        logout(false);
+        try {
+          window.location.replace('/');
+        } catch {}
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [logout]);
 
   // Inactivity auto-lock timer
   useEffect(() => {
@@ -266,7 +341,7 @@ export function usePrivacy(): PrivacyContextValue {
       preferences: DEFAULT_PREFERENCES,
       loadingPreferences: false,
       activateShield: () => {},
-      deactivateShield: () => {},
+      deactivateShield: async () => {},
       unlockWithReauth: async () => false,
       quickExit: () => {
         try {

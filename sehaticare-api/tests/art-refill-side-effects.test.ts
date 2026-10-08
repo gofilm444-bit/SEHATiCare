@@ -529,5 +529,167 @@ test('AG-06: ART Side-Effect Notes, Personal Medication Stock & Privacy-Safe Ref
     assert.ok(!metaStr.includes('Tenofovir'), 'Nama obat tidak boleh ada dalam audit log');
   }
 
+  // =========================================================================
+  // 7. AG-06A AUDIT: DOCTOR CLINICAL SCOPE ISOLATION FROM COMPANION ASSIGNMENTS
+  // =========================================================================
+
+  // A. Patient 1 has active companion assignment with Companion 1, but Doctor B has no clinical relationship -> Doctor B DENIED (403)
+  const docBSePre = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient1Id}/art-care/side-effects`,
+    headers: { authorization: `Bearer ${doctorBToken}` }
+  });
+  assert.equal(docBSePre.statusCode, 403, 'Doctor B without clinical scope must be 403 even if companion is active');
+
+  const docBStockPre = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient1Id}/art-care/stock-summary`,
+    headers: { authorization: `Bearer ${doctorBToken}` }
+  });
+  assert.equal(docBStockPre.statusCode, 403, 'Doctor B without clinical scope must be 403 on stock summary');
+
+  // B. Doctor A has valid clinical relationship (consultation) with Patient 1 -> Doctor A ALLOWED (200)
+  const docASePre = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient1Id}/art-care/side-effects`,
+    headers: { authorization: `Bearer ${doctorAToken}` }
+  });
+  assert.equal(docASePre.statusCode, 200, 'Doctor A with valid clinical relationship must be 200');
+
+  const docAStockPre = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient1Id}/art-care/stock-summary`,
+    headers: { authorization: `Bearer ${doctorAToken}` }
+  });
+  assert.equal(docAStockPre.statusCode, 200, 'Doctor A with valid clinical relationship must be 200');
+
+  // C. Companion Reassignment: Reassign companion from Companion 1 to Companion 2
+  await prisma.patient_companion_assignments.updateMany({
+    where: { patient_user_id: patient1Id, companion_user_id: companion1Id },
+    data: { status: 'ENDED', ended_at: new Date() }
+  });
+  await prisma.patient_companion_assignments.create({
+    data: {
+      id: randomUUID(),
+      patient_user_id: patient1Id,
+      companion_user_id: companion2Id,
+      facility_id: facility.id,
+      assigned_by_user_id: adminId,
+      status: 'ACTIVE',
+      started_at: new Date()
+    }
+  });
+
+  // Reassignment must NOT give Doctor B clinical access (Doctor B still 403)
+  const docBSePost = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient1Id}/art-care/side-effects`,
+    headers: { authorization: `Bearer ${doctorBToken}` }
+  });
+  assert.equal(docBSePost.statusCode, 403, 'Companion reassignment must never grant doctor clinical access');
+
+  const docBStockPost = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient1Id}/art-care/stock-summary`,
+    headers: { authorization: `Bearer ${doctorBToken}` }
+  });
+  assert.equal(docBStockPost.statusCode, 403, 'Companion reassignment must never grant doctor stock access');
+
+  // Reassignment must NOT revoke Doctor A's independent clinical access (Doctor A still 200)
+  const docASePost = await app.inject({
+    method: 'GET',
+    url: `/doctor/patients/${patient1Id}/art-care/side-effects`,
+    headers: { authorization: `Bearer ${doctorAToken}` }
+  });
+  assert.equal(docASePost.statusCode, 200, 'Doctor A independent clinical scope must persist across companion reassignment');
+
+  // =========================================================================
+  // 8. AG-06A AUDIT: REFILL STATUS SEMANTICS MATRIX
+  // =========================================================================
+
+  // Scenario 1: Patient 2 has NO stock snapshots -> UNKNOWN
+  const p2EmptyStockRes = await app.inject({
+    method: 'GET',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` }
+  });
+  assert.equal(p2EmptyStockRes.statusCode, 200);
+  assert.equal(p2EmptyStockRes.json().refill_status.refill_status, 'UNKNOWN', 'Empty stock must be UNKNOWN, not NEEDS_ATTENTION');
+  assert.equal(p2EmptyStockRes.json().current_stock, null);
+
+  // Scenario 2: Patient 2 records exact quantity ONLY without usable days estimate -> UNKNOWN (zero regimen inference)
+  const p2QtyOnlyPost = await app.inject({
+    method: 'POST',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` },
+    payload: { quantity_remaining: 60, unit: 'tablet' }
+  });
+  assert.equal(p2QtyOnlyPost.statusCode, 201);
+
+  const p2QtyOnlyGet = await app.inject({
+    method: 'GET',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` }
+  });
+  assert.equal(p2QtyOnlyGet.json().refill_status.refill_status, 'UNKNOWN', 'Quantity without days estimate must be UNKNOWN');
+  assert.equal(p2QtyOnlyGet.json().refill_status.estimated_days_remaining, null);
+  assert.equal(p2QtyOnlyGet.json().current_stock.quantity_remaining, 60);
+
+  // Scenario 3: 8 days remaining, threshold 7 -> OK
+  await app.inject({
+    method: 'POST',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` },
+    payload: { estimated_days_remaining: 8 }
+  });
+  const p2EightDaysGet = await app.inject({
+    method: 'GET',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` }
+  });
+  assert.equal(p2EightDaysGet.json().refill_status.refill_status, 'OK', '8 days > threshold 7 must be OK');
+
+  // Scenario 4: 7 days remaining, threshold 7 -> DUE_SOON (<= threshold)
+  await app.inject({
+    method: 'POST',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` },
+    payload: { estimated_days_remaining: 7 }
+  });
+  const p2SevenDaysGet = await app.inject({
+    method: 'GET',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` }
+  });
+  assert.equal(p2SevenDaysGet.json().refill_status.refill_status, 'DUE_SOON', '7 days <= threshold 7 must be DUE_SOON');
+
+  // Scenario 5: 3 days remaining, threshold 7 -> DUE_SOON (<= threshold and > 0)
+  await app.inject({
+    method: 'POST',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` },
+    payload: { estimated_days_remaining: 3 }
+  });
+  const p2ThreeDaysGet = await app.inject({
+    method: 'GET',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` }
+  });
+  assert.equal(p2ThreeDaysGet.json().refill_status.refill_status, 'DUE_SOON', '3 days must be DUE_SOON');
+
+  // Scenario 6: 0 days remaining -> NEEDS_ATTENTION
+  await app.inject({
+    method: 'POST',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` },
+    payload: { estimated_days_remaining: 0 }
+  });
+  const p2ZeroDaysGet = await app.inject({
+    method: 'GET',
+    url: '/patient/art-care/stock',
+    headers: { authorization: `Bearer ${patient2Token}` }
+  });
+  assert.equal(p2ZeroDaysGet.json().refill_status.refill_status, 'NEEDS_ATTENTION', '0 days must be NEEDS_ATTENTION');
+
   await app.close();
 });

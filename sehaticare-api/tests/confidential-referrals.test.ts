@@ -285,7 +285,7 @@ test('AG-08: Confidential Referral, Transfer & Service Navigation Foundation', a
   // 2. Filter by service_type works
   const filterRes = await app.inject({
     method: 'GET',
-    url: '/public/service-facilities?service_type=REFERRAL_INTAKE'
+    url: `/public/service-facilities?service_type=REFERRAL_INTAKE&region_id=${regionA.id}`
   });
   assert.equal(filterRes.statusCode, 200);
   const filterData = filterRes.json();

@@ -6,26 +6,50 @@ import {
   doctorArtCarePlanCreateSchema,
   doctorArtCarePlanUpdateSchema,
   patientConsentUpdateSchema,
-  patientReminderSyncSchema
+  patientMedicationStockCreateSchema,
+  patientRefillSettingsUpdateSchema,
+  patientRefillSupportConsentUpdateSchema,
+  patientReminderSyncSchema,
+  patientSideEffectCreateSchema,
+  patientSideEffectUpdateSchema
 } from './artCare.validators';
 import {
   toCompanionAdherenceSupportDto,
+  toCompanionRefillSupportDto,
   toDoctorArtCarePlanDto,
+  toDoctorSideEffectDto,
   toPatientArtCarePlanDto,
-  toPatientConsentDto
+  toPatientConsentDto,
+  toPatientMedicationStockDto,
+  toPatientRefillSettingsDto,
+  toPatientRefillSupportConsentDto,
+  toPatientSideEffectDto,
+  toRefillStatusDto
 } from './artCare.presenter';
 import {
   ArtCareError,
   calculateAdherenceStats,
   createDoctorArtCarePlan,
+  createPatientSideEffect,
   getCompanionAdherenceSupport,
+  getCompanionRefillSupport,
+  getDoctorPatientSideEffects,
+  getDoctorPatientStockSummary,
   getPatientActiveArtCarePlan,
   getPatientArtCarePlanHistory,
+  getPatientMedicationStocks,
+  getPatientRefillSettings,
+  getPatientRefillSupportConsent,
+  getPatientSideEffects,
   getPatientSupportConsent,
+  recordPatientMedicationStock,
   resolveArtCarePlan,
   resolveUser,
   syncPatientReminderFromArtItem,
   updateDoctorArtCarePlan,
+  updatePatientRefillSettings,
+  updatePatientRefillSupportConsent,
+  updatePatientSideEffect,
   updatePatientSupportConsent
 } from './artCare.service';
 import { hasDoctorPatientRelationship } from './hivCare.service';
@@ -174,6 +198,133 @@ export default async function artCareRoutes(app: FastifyInstance) {
     }
   });
 
+  // Patient Side-Effect Notes
+  app.get('/patient/art-care/side-effects', async (req, reply) => {
+    if (!patientOnly(req, reply)) return reply;
+
+    const entries = await getPatientSideEffects(req.user!.userId);
+    return reply.code(200).send({
+      items: entries.map(toPatientSideEffectDto)
+    });
+  });
+
+  app.post('/patient/art-care/side-effects', async (req, reply) => {
+    if (!patientOnly(req, reply)) return reply;
+
+    const body = patientSideEffectCreateSchema.parse(req.body);
+    try {
+      const entry = await createPatientSideEffect({
+        patientUserId: req.user!.userId,
+        data: body,
+        correlationId: req.id
+      });
+      return reply.code(201).send(toPatientSideEffectDto(entry));
+    } catch (err: any) {
+      if (err instanceof ArtCareError) {
+        return reply.code(err.statusCode).send({ message: err.message });
+      }
+      throw err;
+    }
+  });
+
+  app.patch('/patient/art-care/side-effects/:entryId', async (req, reply) => {
+    if (!patientOnly(req, reply)) return reply;
+
+    const { entryId } = req.params as { entryId: string };
+    const body = patientSideEffectUpdateSchema.parse(req.body);
+    try {
+      const updated = await updatePatientSideEffect({
+        patientUserId: req.user!.userId,
+        entryIdentifier: entryId,
+        data: body,
+        correlationId: req.id
+      });
+      return reply.code(200).send(toPatientSideEffectDto(updated));
+    } catch (err: any) {
+      if (err instanceof ArtCareError) {
+        return reply.code(err.statusCode).send({ message: err.message });
+      }
+      throw err;
+    }
+  });
+
+  // Patient Personal Medication Stock & Refill Status
+  app.get('/patient/art-care/stock', async (req, reply) => {
+    if (!patientOnly(req, reply)) return reply;
+
+    const data = await getPatientMedicationStocks(req.user!.userId);
+    const refillStatus = toRefillStatusDto({
+      latestStock: data.latest_stock,
+      thresholdDays: data.threshold_days,
+      nextControl: data.next_control
+    });
+
+    return reply.code(200).send({
+      refill_status: refillStatus,
+      current_stock: toPatientMedicationStockDto(data.latest_stock),
+      history: data.history.map(toPatientMedicationStockDto)
+    });
+  });
+
+  app.post('/patient/art-care/stock', async (req, reply) => {
+    if (!patientOnly(req, reply)) return reply;
+
+    const body = patientMedicationStockCreateSchema.parse(req.body);
+    try {
+      const stock = await recordPatientMedicationStock({
+        patientUserId: req.user!.userId,
+        data: body,
+        correlationId: req.id
+      });
+      return reply.code(201).send(toPatientMedicationStockDto(stock));
+    } catch (err: any) {
+      if (err instanceof ArtCareError) {
+        return reply.code(err.statusCode).send({ message: err.message });
+      }
+      throw err;
+    }
+  });
+
+  // Patient Refill Settings
+  app.get('/patient/art-care/refill-settings', async (req, reply) => {
+    if (!patientOnly(req, reply)) return reply;
+
+    const setting = await getPatientRefillSettings(req.user!.userId);
+    return reply.code(200).send(toPatientRefillSettingsDto(setting));
+  });
+
+  app.patch('/patient/art-care/refill-settings', async (req, reply) => {
+    if (!patientOnly(req, reply)) return reply;
+
+    const body = patientRefillSettingsUpdateSchema.parse(req.body);
+    const updated = await updatePatientRefillSettings({
+      patientUserId: req.user!.userId,
+      thresholdDays: body.refill_alert_threshold_days,
+      correlationId: req.id
+    });
+    return reply.code(200).send(toPatientRefillSettingsDto(updated));
+  });
+
+  // Patient Refill Support Consent for Companion
+  app.get('/patient/art-care/refill-support-consent', async (req, reply) => {
+    if (!patientOnly(req, reply)) return reply;
+
+    const consent = await getPatientRefillSupportConsent(req.user!.userId);
+    return reply.code(200).send(toPatientRefillSupportConsentDto(consent));
+  });
+
+  app.patch('/patient/art-care/refill-support-consent', async (req, reply) => {
+    if (!patientOnly(req, reply)) return reply;
+
+    const body = patientRefillSupportConsentUpdateSchema.parse(req.body);
+    const consent = await updatePatientRefillSupportConsent({
+      patientUserId: req.user!.userId,
+      isConsentEnabled: body.is_consent_enabled,
+      correlationId: req.id
+    });
+    return reply.code(200).send(toPatientRefillSupportConsentDto(consent));
+  });
+
   // ==========================================
   // DOCTOR ART CARE & REGIMEN MANAGEMENT
   // ==========================================
@@ -304,6 +455,52 @@ export default async function artCareRoutes(app: FastifyInstance) {
     });
   });
 
+  // Doctor Patient Side-Effects (Read-only, scoped)
+  app.get('/doctor/patients/:patientId/art-care/side-effects', async (req, reply) => {
+    const doctorProfile = await requireVerifiedDoctor(req, reply);
+    if (!doctorProfile) return reply;
+
+    const { patientId } = req.params as { patientId: string };
+    try {
+      const entries = await getDoctorPatientSideEffects(req.user!.userId, patientId);
+      return reply.code(200).send({
+        items: entries.map(toDoctorSideEffectDto)
+      });
+    } catch (err: any) {
+      if (err instanceof ArtCareError) {
+        return reply.code(err.statusCode).send({ message: err.message });
+      }
+      throw err;
+    }
+  });
+
+  // Doctor Patient Stock & Refill Summary (Read-only, scoped)
+  app.get('/doctor/patients/:patientId/art-care/stock-summary', async (req, reply) => {
+    const doctorProfile = await requireVerifiedDoctor(req, reply);
+    if (!doctorProfile) return reply;
+
+    const { patientId } = req.params as { patientId: string };
+    try {
+      const data = await getDoctorPatientStockSummary(req.user!.userId, patientId);
+      const refillStatus = toRefillStatusDto({
+        latestStock: data.latest_stock,
+        thresholdDays: data.threshold_days,
+        nextControl: data.next_control
+      });
+
+      return reply.code(200).send({
+        refill_status: refillStatus,
+        current_stock: toPatientMedicationStockDto(data.latest_stock),
+        history: data.history.map(toPatientMedicationStockDto)
+      });
+    } catch (err: any) {
+      if (err instanceof ArtCareError) {
+        return reply.code(err.statusCode).send({ message: err.message });
+      }
+      throw err;
+    }
+  });
+
   // ==========================================
   // COMPANION PRIVACY-SAFE ADHERENCE SUPPORT
   // ==========================================
@@ -325,6 +522,30 @@ export default async function artCareRoutes(app: FastifyInstance) {
 
       return reply.code(200).send(
         toCompanionAdherenceSupportDto(result.consent_enabled, result.stats)
+      );
+    } catch (err: any) {
+      if (err instanceof ArtCareError) {
+        return reply.code(err.statusCode).send({ message: err.message });
+      }
+      throw err;
+    }
+  });
+
+  // Companion Privacy-Safe Refill Support Summary (Consent + Assignment Scoped)
+  app.get('/companion/patients/:patientId/refill-support', async (req, reply) => {
+    const companion = await requireCompanion(req, reply);
+    if (!companion) return reply;
+
+    const { patientId } = req.params as { patientId: string };
+    try {
+      const result = await getCompanionRefillSupport({
+        companionUserId: companion.id,
+        patientIdentifier: patientId,
+        correlationId: req.id
+      });
+
+      return reply.code(200).send(
+        toCompanionRefillSupportDto(result.consent_enabled, result.refill_data)
       );
     } catch (err: any) {
       if (err instanceof ArtCareError) {

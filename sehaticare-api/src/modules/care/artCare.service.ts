@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../../db/prisma';
 import { recordAuditLog } from '../../utils/audit';
 import { hasDoctorPatientRelationship } from './hivCare.service';
+import { computeRefillStatus } from './artCare.presenter';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -572,3 +573,443 @@ export async function getCompanionAdherenceSupport(input: {
     stats
   };
 }
+
+export async function getPatientSideEffects(patientUserId: string) {
+  return prisma.art_side_effect_entries.findMany({
+    where: {
+      patient_user_id: patientUserId,
+      archived_at: null
+    },
+    orderBy: { occurred_at: 'desc' },
+    include: { care_plan: true }
+  });
+}
+
+export async function createPatientSideEffect(input: {
+  patientUserId: string;
+  data: {
+    symptom_name: string;
+    severity: 'MILD' | 'MODERATE' | 'SEVERE';
+    patient_note?: string | null;
+    occurred_at?: string;
+    art_care_plan_id?: string | null;
+  };
+  correlationId?: string;
+}) {
+  let planId: string | null = null;
+  if (input.data.art_care_plan_id) {
+    const isUuid = UUID_REGEX.test(input.data.art_care_plan_id);
+    const plan = await prisma.art_care_plans.findFirst({
+      where: isUuid
+        ? { id: input.data.art_care_plan_id, patient_user_id: input.patientUserId }
+        : { public_id: input.data.art_care_plan_id, patient_user_id: input.patientUserId }
+    });
+    if (!plan) {
+      throw new ArtCareError('Rencana ART tidak ditemukan untuk pasien ini', 404);
+    }
+    planId = plan.id;
+  }
+
+  const id = randomUUID();
+  const entry = await prisma.art_side_effect_entries.create({
+    data: {
+      id,
+      patient_user_id: input.patientUserId,
+      art_care_plan_id: planId,
+      symptom_name: input.data.symptom_name,
+      severity: input.data.severity,
+      patient_note: input.data.patient_note || null,
+      status: 'ACTIVE',
+      occurred_at: input.data.occurred_at ? new Date(input.data.occurred_at) : new Date(),
+      created_at: new Date(),
+      updated_at: new Date()
+    },
+    include: { care_plan: true }
+  });
+
+  await recordAuditLog(prisma, {
+    actorUserId: input.patientUserId,
+    action: 'ART_SIDE_EFFECT_CREATED',
+    entityType: 'art_side_effect',
+    entityId: entry.id,
+    meta: {
+      public_id: entry.public_id,
+      severity: entry.severity,
+      status: entry.status,
+      correlation_id: input.correlationId
+    }
+  });
+
+  return entry;
+}
+
+export async function updatePatientSideEffect(input: {
+  patientUserId: string;
+  entryIdentifier: string;
+  data: {
+    symptom_name?: string;
+    severity?: 'MILD' | 'MODERATE' | 'SEVERE';
+    patient_note?: string | null;
+    status?: 'ACTIVE' | 'RESOLVED';
+    occurred_at?: string;
+    resolved_at?: string | null;
+  };
+  correlationId?: string;
+}) {
+  const isUuid = UUID_REGEX.test(input.entryIdentifier);
+  const entry = await prisma.art_side_effect_entries.findFirst({
+    where: isUuid ? { id: input.entryIdentifier } : { public_id: input.entryIdentifier }
+  });
+
+  if (!entry || entry.patient_user_id !== input.patientUserId) {
+    throw new ArtCareError('Catatan efek samping tidak ditemukan', 404);
+  }
+
+  let resolvedAt = entry.resolved_at;
+  if (input.data.status === 'RESOLVED') {
+    resolvedAt = input.data.resolved_at ? new Date(input.data.resolved_at) : (entry.resolved_at || new Date());
+  } else if (input.data.status === 'ACTIVE') {
+    resolvedAt = null;
+  }
+
+  const updated = await prisma.art_side_effect_entries.update({
+    where: { id: entry.id },
+    data: {
+      symptom_name: input.data.symptom_name ?? undefined,
+      severity: input.data.severity ?? undefined,
+      patient_note: input.data.patient_note !== undefined ? input.data.patient_note : undefined,
+      status: input.data.status ?? undefined,
+      resolved_at: resolvedAt,
+      occurred_at: input.data.occurred_at ? new Date(input.data.occurred_at) : undefined,
+      updated_at: new Date()
+    },
+    include: { care_plan: true }
+  });
+
+  const isResolved = input.data.status === 'RESOLVED' && entry.status !== 'RESOLVED';
+  await recordAuditLog(prisma, {
+    actorUserId: input.patientUserId,
+    action: isResolved ? 'ART_SIDE_EFFECT_RESOLVED' : 'ART_SIDE_EFFECT_UPDATED',
+    entityType: 'art_side_effect',
+    entityId: updated.id,
+    meta: {
+      public_id: updated.public_id,
+      status: updated.status,
+      correlation_id: input.correlationId
+    }
+  });
+
+  return updated;
+}
+
+export async function getDoctorPatientSideEffects(doctorUserId: string, patientIdentifier: string) {
+  const patient = await resolveUser(patientIdentifier);
+  if (!patient || patient.role !== 'PASIEN') {
+    throw new ArtCareError('Pasien tidak ditemukan', 404);
+  }
+
+  const hasRel = await hasDoctorPatientRelationship(doctorUserId, patient.id);
+  if (!hasRel) {
+    throw new ArtCareError('Tidak memiliki relasi klinis sah dengan pasien ini', 403);
+  }
+
+  return prisma.art_side_effect_entries.findMany({
+    where: {
+      patient_user_id: patient.id,
+      archived_at: null
+    },
+    orderBy: { occurred_at: 'desc' },
+    include: { care_plan: true }
+  });
+}
+
+export async function getPatientMedicationStocks(patientUserId: string) {
+  const stocks = await prisma.art_medication_stocks.findMany({
+    where: { patient_user_id: patientUserId },
+    orderBy: { recorded_at: 'desc' },
+    take: 20,
+    include: { plan_item: true }
+  });
+
+  const setting = await prisma.art_refill_settings.findUnique({
+    where: { patient_user_id: patientUserId }
+  });
+  const thresholdDays = setting?.refill_alert_threshold_days ?? 7;
+
+  const now = new Date();
+  const nextControl = await prisma.control_schedules.findFirst({
+    where: {
+      user_id: patientUserId,
+      status: { in: ['SCHEDULED', 'CONFIRMED'] },
+      starts_at: { gte: now }
+    },
+    orderBy: { starts_at: 'asc' },
+    select: { starts_at: true, timezone: true }
+  });
+
+  return {
+    latest_stock: stocks[0] || null,
+    history: stocks,
+    threshold_days: thresholdDays,
+    next_control: nextControl
+      ? {
+          starts_at: nextControl.starts_at.toISOString(),
+          timezone: nextControl.timezone
+        }
+      : null
+  };
+}
+
+export async function recordPatientMedicationStock(input: {
+  patientUserId: string;
+  data: {
+    art_plan_item_id?: string | null;
+    quantity_remaining?: number | null;
+    unit?: string | null;
+    estimated_days_remaining?: number | null;
+    notes?: string | null;
+    recorded_at?: string;
+  };
+  correlationId?: string;
+}) {
+  let planItemId: string | null = null;
+  if (input.data.art_plan_item_id) {
+    const item = await prisma.art_care_plan_items.findFirst({
+      where: {
+        id: input.data.art_plan_item_id,
+        plan: { patient_user_id: input.patientUserId }
+      }
+    });
+    if (!item) {
+      throw new ArtCareError('Item obat rencana ART tidak ditemukan untuk pasien ini', 404);
+    }
+    planItemId = item.id;
+  }
+
+  const id = randomUUID();
+  const stock = await prisma.art_medication_stocks.create({
+    data: {
+      id,
+      patient_user_id: input.patientUserId,
+      art_plan_item_id: planItemId,
+      quantity_remaining: input.data.quantity_remaining !== undefined && input.data.quantity_remaining !== null
+        ? input.data.quantity_remaining
+        : null,
+      unit: input.data.unit ?? null,
+      estimated_days_remaining: input.data.estimated_days_remaining !== undefined && input.data.estimated_days_remaining !== null
+        ? input.data.estimated_days_remaining
+        : null,
+      notes: input.data.notes ?? null,
+      recorded_at: input.data.recorded_at ? new Date(input.data.recorded_at) : new Date(),
+      created_at: new Date(),
+      updated_at: new Date()
+    },
+    include: { plan_item: true }
+  });
+
+  await recordAuditLog(prisma, {
+    actorUserId: input.patientUserId,
+    action: 'ART_STOCK_RECORDED',
+    entityType: 'art_medication_stock',
+    entityId: stock.id,
+    meta: {
+      public_id: stock.public_id,
+      correlation_id: input.correlationId
+    }
+  });
+
+  return stock;
+}
+
+export async function getPatientRefillSettings(patientUserId: string) {
+  const setting = await prisma.art_refill_settings.findUnique({
+    where: { patient_user_id: patientUserId }
+  });
+  return setting || { refill_alert_threshold_days: 7 };
+}
+
+export async function updatePatientRefillSettings(input: {
+  patientUserId: string;
+  thresholdDays: number;
+  correlationId?: string;
+}) {
+  const setting = await prisma.art_refill_settings.upsert({
+    where: { patient_user_id: input.patientUserId },
+    create: {
+      id: randomUUID(),
+      patient_user_id: input.patientUserId,
+      refill_alert_threshold_days: input.thresholdDays,
+      created_at: new Date(),
+      updated_at: new Date()
+    },
+    update: {
+      refill_alert_threshold_days: input.thresholdDays,
+      updated_at: new Date()
+    }
+  });
+
+  await recordAuditLog(prisma, {
+    actorUserId: input.patientUserId,
+    action: 'ART_REFILL_SETTING_UPDATED',
+    entityType: 'art_refill_setting',
+    entityId: setting.id,
+    meta: {
+      refill_alert_threshold_days: setting.refill_alert_threshold_days,
+      correlation_id: input.correlationId
+    }
+  });
+
+  return setting;
+}
+
+export async function getPatientRefillSupportConsent(patientUserId: string) {
+  const consent = await prisma.art_refill_support_consents.findUnique({
+    where: { patient_user_id: patientUserId }
+  });
+  return consent || { is_consent_enabled: false };
+}
+
+export async function updatePatientRefillSupportConsent(input: {
+  patientUserId: string;
+  isConsentEnabled: boolean;
+  correlationId?: string;
+}) {
+  const now = new Date();
+  const consent = await prisma.art_refill_support_consents.upsert({
+    where: { patient_user_id: input.patientUserId },
+    create: {
+      id: randomUUID(),
+      patient_user_id: input.patientUserId,
+      is_consent_enabled: input.isConsentEnabled,
+      consented_at: input.isConsentEnabled ? now : null,
+      revoked_at: !input.isConsentEnabled ? now : null,
+      created_at: now,
+      updated_at: now
+    },
+    update: {
+      is_consent_enabled: input.isConsentEnabled,
+      consented_at: input.isConsentEnabled ? now : undefined,
+      revoked_at: !input.isConsentEnabled ? now : undefined,
+      updated_at: now
+    }
+  });
+
+  await recordAuditLog(prisma, {
+    actorUserId: input.patientUserId,
+    action: input.isConsentEnabled
+      ? 'ART_REFILL_SUPPORT_CONSENT_GRANTED'
+      : 'ART_REFILL_SUPPORT_CONSENT_REVOKED',
+    entityType: 'art_refill_support_consent',
+    entityId: consent.id,
+    meta: {
+      is_consent_enabled: consent.is_consent_enabled,
+      correlation_id: input.correlationId
+    }
+  });
+
+  return consent;
+}
+
+export async function getCompanionRefillSupport(input: {
+  companionUserId: string;
+  patientIdentifier: string;
+  correlationId?: string;
+}) {
+  const patient = await resolveUser(input.patientIdentifier);
+  if (!patient || patient.role !== 'PASIEN') {
+    throw new ArtCareError('Pasien tidak ditemukan', 404);
+  }
+
+  // Verify active longitudinal companion assignment
+  const assignment = await prisma.patient_companion_assignments.findFirst({
+    where: {
+      companion_user_id: input.companionUserId,
+      patient_user_id: patient.id,
+      status: 'ACTIVE'
+    }
+  });
+
+  if (!assignment) {
+    throw new ArtCareError('Anda tidak memiliki penugasan aktif untuk pasien ini', 403);
+  }
+
+  // Verify explicit patient consent for refill support
+  const consent = await prisma.art_refill_support_consents.findUnique({
+    where: { patient_user_id: patient.id }
+  });
+
+  if (!consent || !consent.is_consent_enabled) {
+    return {
+      consent_enabled: false,
+      refill_data: null
+    };
+  }
+
+  const latestStock = await prisma.art_medication_stocks.findFirst({
+    where: { patient_user_id: patient.id },
+    orderBy: { recorded_at: 'desc' }
+  });
+
+  const setting = await prisma.art_refill_settings.findUnique({
+    where: { patient_user_id: patient.id }
+  });
+  const thresholdDays = setting?.refill_alert_threshold_days ?? 7;
+
+  const now = new Date();
+  const nextControl = await prisma.control_schedules.findFirst({
+    where: {
+      user_id: patient.id,
+      status: { in: ['SCHEDULED', 'CONFIRMED'] },
+      starts_at: { gte: now }
+    },
+    orderBy: { starts_at: 'asc' },
+    select: { starts_at: true, timezone: true }
+  });
+
+  const estimatedDays = latestStock?.estimated_days_remaining !== null && latestStock?.estimated_days_remaining !== undefined
+    ? Number(latestStock.estimated_days_remaining)
+    : null;
+
+  const derived = computeRefillStatus(estimatedDays, thresholdDays);
+
+  await recordAuditLog(prisma, {
+    actorUserId: input.companionUserId,
+    action: 'ART_REFILL_SUPPORT_VIEWED',
+    entityType: 'refill_support_summary',
+    entityId: patient.id,
+    meta: {
+      patient_public_id: patient.public_id,
+      correlation_id: input.correlationId
+    }
+  });
+
+  return {
+    consent_enabled: true,
+    refill_data: {
+      status: derived.status,
+      coarse_bucket: derived.coarse_bucket,
+      coarse_bucket_label: derived.coarse_bucket_label,
+      next_control_schedule: nextControl
+        ? {
+            starts_at: nextControl.starts_at.toISOString(),
+            timezone: nextControl.timezone
+          }
+        : null
+    }
+  };
+}
+
+export async function getDoctorPatientStockSummary(doctorUserId: string, patientIdentifier: string) {
+  const patient = await resolveUser(patientIdentifier);
+  if (!patient || patient.role !== 'PASIEN') {
+    throw new ArtCareError('Pasien tidak ditemukan', 404);
+  }
+
+  const hasRel = await hasDoctorPatientRelationship(doctorUserId, patient.id);
+  if (!hasRel) {
+    throw new ArtCareError('Tidak memiliki relasi klinis sah dengan pasien ini', 403);
+  }
+
+  return getPatientMedicationStocks(patient.id);
+}
+

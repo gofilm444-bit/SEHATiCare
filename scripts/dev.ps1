@@ -18,12 +18,31 @@ function Stop-ProcessTree {
   try {
     $Process.Refresh()
     if (-not $Process.HasExited) {
-      & taskkill.exe /PID $Process.Id /T /F *> $null
+      if ([System.Environment]::OSVersion.Platform -match "Win32|WinCE" -or [System.IO.Path]::DirectorySeparatorChar -eq '\') {
+        & taskkill.exe /PID $Process.Id /T /F *> $null
+      } else {
+        $Process.Kill($true)
+      }
     }
   }
   catch {
     # The process may already have exited; cleanup is best-effort.
   }
+}
+
+function Get-NpmExecutable {
+  $isWin = [System.Environment]::OSVersion.Platform -match "Win32|WinCE" -or [System.IO.Path]::DirectorySeparatorChar -eq '\'
+  if ($isWin) {
+    $cmd = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
+    if ($cmd) {
+      return $cmd.Source
+    }
+  }
+  $fallback = Get-Command "npm" -ErrorAction SilentlyContinue
+  if ($fallback) {
+    return $fallback.Source
+  }
+  return "npm"
 }
 
 $requiredPorts = @(
@@ -50,6 +69,8 @@ if ($conflicts) {
   exit 1
 }
 
+$npmExec = Get-NpmExecutable
+
 Write-Host "Starting SEHATiCare API and Web..."
 Write-Host "API: http://localhost:3100"
 Write-Host "Web: https://localhost:5173"
@@ -59,8 +80,8 @@ $apiProcess = $null
 $webProcess = $null
 
 try {
-  $apiProcess = Start-Process -FilePath "npm" -ArgumentList "run", "dev" -WorkingDirectory $api -NoNewWindow -PassThru
-  $webProcess = Start-Process -FilePath "npm" -ArgumentList "run", "dev" -WorkingDirectory $web -NoNewWindow -PassThru
+  $apiProcess = Start-Process -FilePath $npmExec -ArgumentList "run", "dev" -WorkingDirectory $api -NoNewWindow -PassThru
+  $webProcess = Start-Process -FilePath $npmExec -ArgumentList "run", "dev" -WorkingDirectory $web -NoNewWindow -PassThru
 
   while (-not $apiProcess.HasExited -and -not $webProcess.HasExited) {
     Start-Sleep -Milliseconds 500

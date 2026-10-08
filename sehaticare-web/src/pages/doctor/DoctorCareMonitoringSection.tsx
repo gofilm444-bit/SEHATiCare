@@ -13,6 +13,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Icon } from '../../components/ui/icons';
 import { StatusBadge } from '../../components/ui/patterns';
+import { DoctorArtCareSection } from '../care/DoctorArtCareSection';
 
 interface Props {
   token: string;
@@ -145,6 +146,7 @@ export function DoctorCareMonitoringSection({ token, consultationId, patientPubl
 
   const care = careSummary?.care;
   const isEnrolled = care && care.status === 'ACTIVE';
+  const effectivePatientPublicId = patientPublicId || careSummary?.patient?.public_id;
 
   return (
     <Card className="border-sky-200/90 shadow-sm" data-testid="doctor-care-monitoring-section">
@@ -223,6 +225,13 @@ export function DoctorCareMonitoringSection({ token, consultationId, patientPubl
             </div>
           )}
         </div>
+
+        {/* MANAJEMEN TERAPI ART & KEPATUHAN */}
+        {isEnrolled && effectivePatientPublicId ? (
+          <div className="pt-2 border-t border-slate-200">
+            <DoctorArtCareSection token={token} patientPublicId={effectivePatientPublicId} />
+          </div>
+        ) : null}
 
         {/* FORM TAMBAH PEMANTAUAN */}
         {showForm && isEnrolled ? (

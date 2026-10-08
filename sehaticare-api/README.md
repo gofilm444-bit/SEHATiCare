@@ -13,11 +13,12 @@ Backend API MVP Fase 1 untuk sistem edukasi, konsultasi, dan pendampingan keseha
    - JWT: `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL_MINUTES`, `JWT_REFRESH_TTL_DAYS`
    - Internal AI: `INTERNAL_AI_TOKEN`
    - Storage (Minio/S3): `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_USE_SSL`, `STORAGE_SIGNED_URL_TTL_SECONDS`
-3. Jalankan Prisma migrate (buat database Postgres terlebih dahulu):
+3. Jalankan migrasi database (buat database Postgres terlebih dahulu):
    ```bash
-   npx prisma migrate dev
+   npm run db:deploy
    npx prisma generate
    ```
+   Command `npm run db:deploy` otomatis mendeteksi apakah database berstatus fresh-install (mengaplikasikan seluruh 21 migrasi secara dependency-safe) atau existing database (menjalankan deploy standar tanpa merusak history/data).
 
 ### Menjalankan Postgres (opsional via Docker)
 

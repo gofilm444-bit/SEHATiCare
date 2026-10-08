@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { Icon } from '../../components/ui/icons';
 import { PageHeader, StatusBadge } from '../../components/ui/patterns';
 import { useAuth } from '../../context/AuthContext';
+import { PatientArtCareSection } from '../care/PatientArtCareSection';
 
 export function PatientCareMonitoringPage() {
   const { token } = useAuth();
@@ -197,6 +198,11 @@ export function PatientCareMonitoringPage() {
           </Card>
         )}
       </section>
+
+      {/* RENCANA PERAWATAN ART & KEPATUHAN OBAT */}
+      {isEnrolled && token ? (
+        <PatientArtCareSection token={token} />
+      ) : null}
 
       {/* FORM PENCATATAN MANDIRI */}
       {isEnrolled ? (

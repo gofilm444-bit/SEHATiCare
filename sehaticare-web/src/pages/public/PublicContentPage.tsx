@@ -414,7 +414,7 @@ function UExplainedSection() {
             U=U: Undetectable = Untransmittable
           </h2>
           <p className="text-base leading-relaxed text-slate-300">
-            Bukti ilmiah internasional menegaskan: Orang dengan HIV yang rutin mengonsumsi ARV dan mempertahankan viral load tidak terdeteksi (<span className="text-emerald-300 font-bold">&lt;200 kopi/mL</span>) selama minimal 6 bulan <span className="font-bold text-white">tidak dapat menularkan HIV kepada pasangan seksualnya</span>.
+            Konsensus ilmiah internasional (WHO, NIH, UNAIDS) menegaskan: Orang dengan HIV yang rutin mengonsumsi ARV dan mempertahankan viral load tersupresi (<span className="text-emerald-300 font-bold">&lt;200 kopi/mL</span>) secara stabil <span className="font-bold text-white">tidak dapat menularkan HIV kepada pasangan seksualnya</span>.
           </p>
           <div className="pt-2">
             <Link
@@ -429,13 +429,13 @@ function UExplainedSection() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
             <p className="text-xs font-bold uppercase tracking-wide text-emerald-400">Syarat Kunci</p>
-            <p className="mt-1 text-sm font-semibold text-white">Rutin Minum ARV & Cek Viral Load</p>
-            <p className="mt-1 text-xs text-slate-300">Virus ditekan di bawah ambang deteksi dan dipertahankan minimal 6 bulan berturut-turut.</p>
+            <p className="mt-1 text-sm font-semibold text-white">Kepatuhan Terapi & Supresi Stabil</p>
+            <p className="mt-1 text-xs text-slate-300">Mempertahankan viral load &lt;200 kopi/mL melalui tes laboratorium berkala. Pada awal terapi, gunakan pengaman tambahan hingga supresi terkonfirmasi.</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
             <p className="text-xs font-bold uppercase tracking-wide text-amber-400">Batasan Medis</p>
-            <p className="mt-1 text-sm font-semibold text-white">Proteksi Transmisi Seksual</p>
-            <p className="mt-1 text-xs text-slate-300">U=U tidak mencegah IMS lain atau kehamilan. Gunakan kondom bila memerlukan proteksi ganda.</p>
+            <p className="mt-1 text-sm font-semibold text-white">Khusus Transmisi Seksual</p>
+            <p className="mt-1 text-xs text-slate-300">U=U tidak mencegah IMS lain atau kehamilan, dan tidak berlaku tanpa kualifikasi untuk penularan darah atau jarum suntik bersama.</p>
           </div>
         </div>
       </div>
@@ -535,23 +535,23 @@ function MythFactSection() {
 const FAQS = [
   {
     q: 'Apa perbedaan mendasar antara HIV dan AIDS?',
-    a: 'HIV adalah nama virus (Human Immunodeficiency Virus) yang menyerang sistem kekebalan tubuh. AIDS (Acquired Immunodeficiency Syndrome) adalah tahap lanjut yang terjadi bila infeksi HIV tidak diobati selama bertahun-tahun. Dengan terapi ARV rutin, orang dengan HIV tidak akan berkembang menjadi AIDS.'
+    a: 'HIV adalah nama virus (Human Immunodeficiency Virus) yang menyerang sistem kekebalan tubuh, khususnya sel limfosit CD4. AIDS (Acquired Immunodeficiency Syndrome) adalah tahap lanjut yang timbul jika infeksi HIV tidak diobati selama bertahun-tahun. Dengan deteksi dini dan terapi ARV teratur, seseorang dengan HIV dapat hidup sehat tanpa berkembang menjadi AIDS.'
   },
   {
     q: 'Apa yang harus dilakukan jika saya baru saja terpapar dalam kurun <72 jam?',
-    a: 'Segera kunjungi faskes atau IGD terdekat untuk konsultasi mengenai PEP (Post-Exposure Prophylaxis). PEP adalah obat darurat yang harus dimulai maksimal dalam 72 jam pertama setelah paparan dan dikonsumsi selama 28 hari penuh untuk mencegah virus menetap di tubuh.'
+    a: 'Segera kunjungi faskes atau IGD rumah sakit terdekat untuk konsultasi mengenai PEP (Post-Exposure Prophylaxis). PEP adalah pengobatan darurat yang harus dimulai secepat mungkin (idealnya <24 jam dan paling lambat 72 jam setelah paparan) serta dikonsumsi selama 28 hari penuh di bawah pengawasan dokter.'
   },
   {
     q: 'Kapan waktu yang tepat untuk melakukan tes HIV setelah paparan?',
-    a: 'Tes cepat antibodi mendeteksi antibodi tubuh dengan masa jendela 3–12 minggu. Tes kombinasi antigen/antibodi generasi ke-4 memiliki masa jendela 18–45 hari. Jika hasil tes awal non-reaktif namun paparan baru saja terjadi, dokter akan menyarankan tes konfirmasi ulang setelah masa jendela berakhir.'
+    a: 'Masa jendela bervariasi menurut jenis tes: tes cepat antibodi (3–12 minggu), tes kombinasi antigen/antibodi generasi ke-4 (18–45 hari), dan tes asam nukleat (NAT, 10–33 hari). Jika tes dilakukan saat masa jendela dan hasilnya non-reaktif, dokter akan menganjurkan tes ulang konfirmasi setelah masa jendela berakhir.'
   },
   {
-    q: 'Apakah identitas dan data medis saya terlindungi saat periksa di faskes?',
-    a: 'Ya. Kerahasiaan data pasien dijamin secara hukum melalui UU No. 17 Tahun 2023 tentang Kesehatan dan Permenkes No. 24 Tahun 2022 tentang Rekam Medis. Tenaga medis wajib menjaga kerahasiaan catatan kesehatan Anda dalam batas-batas yang ditentukan oleh peraturan perundang-undangan.'
+    q: 'Bagaimana kerahasiaan data medis saya dilindungi?',
+    a: 'Kerahasiaan catatan medis dilindungi oleh UU No. 17 Tahun 2023 tentang Kesehatan dan Permenkes No. 24 Tahun 2022 (Pasal 28). Pembukaan informasi medis dibatasi secara hukum hanya atas persetujuan pasien, perawatan medis, atau perintah pengadilan yang sah. Di SEHATiCare, sesi Anda terlindungi dengan isolasi token di RAM dan fitur Quick Exit; pada perangkat bersama, disarankan menggunakan mode penyamaran (Incognito Browsing) karena peramban web tidak menghapus riwayat penelusuran secara otomatis.'
   },
   {
-    q: 'Bagaimana cara mendapatkan obat ARV di fasilitas kesehatan?',
-    a: 'Datanglah ke puskesmas atau rumah sakit yang memiliki layanan VCT/PDP. Obat ARV disediakan gratis oleh program pemerintah Republik Indonesia. Dokter akan memeriksa kondisi dasar Anda dan meresepkan rejimen ARV yang sesuai.'
+    q: 'Bagaimana cara mengakses obat ARV atau PrEP di fasilitas kesehatan?',
+    a: 'Layanan konseling, tes VCT, dan obat ARV disediakan melalui puskesmas atau rumah sakit rujukan pemerintah. Dokter akan melakukan pemeriksaan dasar untuk menentukan rejimen yang tepat. PrEP oral juga dapat diakses di faskes percontohan yang ditunjuk bagi individu HIV-negatif dengan risiko signifikan.'
   }
 ];
 

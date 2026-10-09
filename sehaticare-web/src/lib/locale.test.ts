@@ -8,20 +8,32 @@ import {
   type LocaleDefinition
 } from './locale';
 
-describe('Localized Language Architecture & Governance', () => {
-  it('exposes Bahasa Indonesia (id) as the active primary locale', () => {
-    const available = getAvailableLocales();
-    expect(available.length).toBeGreaterThanOrEqual(1);
-    const primary = available.find((l) => l.isPrimary);
+describe('AG-11A Localized Language Architecture & Review Governance', () => {
+  it('exposes Bahasa Indonesia (id) as the active primary locale without fabricated reviewer metadata', () => {
+    const primary = SUPPORTED_LOCALES.id;
     expect(primary).toBeDefined();
-    expect(primary?.code).toBe('id');
-    expect(primary?.humanReviewed).toBe(true);
+    expect(primary.code).toBe('id');
+    expect(primary.isPrimary).toBe(true);
+    expect(primary.status).toBe('active');
+    expect(primary.isTechnicallyAvailable).toBe(true);
+    expect(primary.humanLinguisticallyReviewed).toBe(true);
+    // CRITICAL: Must not contain fabricated reviewer sign-off
+    expect(primary.humanReviewerSignOff).toBeUndefined();
+
+    // Available in public selectors
+    const available = getAvailableLocales();
+    expect(available.some((l) => l.code === 'id')).toBe(true);
     expect(isLocaleEligibleForPublic('id')).toBe(true);
+  });
+
+  it('clarifies that clinical review is scoped per-article rather than blanket certified across a language', () => {
+    expect(SUPPORTED_LOCALES.id.clinicalReviewScope).toBe('per_article');
+    expect(SUPPORTED_LOCALES['ms-ter'].clinicalReviewScope).toBe('per_article');
   });
 
   it('prohibits unreviewed local dialects (ms-ter) from appearing in public selectors', () => {
     const available = getAvailableLocales();
-    // Must NOT contain ms-ter because humanReviewed is false
+    // Must NOT contain ms-ter because it is in review and unreviewed
     const ternate = available.find((l) => l.code === 'ms-ter');
     expect(ternate).toBeUndefined();
     expect(isLocaleEligibleForPublic('ms-ter')).toBe(false);
@@ -32,42 +44,51 @@ describe('Localized Language Architecture & Governance', () => {
     const ternate = all.find((l) => l.code === 'ms-ter');
     expect(ternate).toBeDefined();
     expect(ternate?.status).toBe('in_review');
-    expect(ternate?.humanReviewed).toBe(false);
+    expect(ternate?.humanLinguisticallyReviewed).toBe(false);
+    expect(ternate?.humanReviewerSignOff).toBeUndefined();
   });
 
-  it('validates human reviewer sign-off requirements strictly', () => {
+  it('rejects unverified or placeholder reviewer sign-offs for local dialects', () => {
     const unsignedLocale: LocaleDefinition = {
       code: 'ms-ter',
       label: 'Melayu Ternate',
       nativeName: 'Bahasa Melayu Ternate',
       isPrimary: false,
-      humanReviewed: false,
-      status: 'in_review'
+      status: 'in_review',
+      isTechnicallyAvailable: false,
+      humanLinguisticallyReviewed: false,
+      clinicalReviewScope: 'per_article'
     };
     const unsignedResult = validateLocaleSignOff(unsignedLocale);
     expect(unsignedResult.valid).toBe(false);
-    expect(unsignedResult.reason).toMatch(/peninjauan dan persetujuan peninjau manusia/i);
+    expect(unsignedResult.reason).toMatch(/verifikasi linguistik manusia/i);
 
-    const signedWithoutName: LocaleDefinition = {
+    // Rejects placeholder/generic reviewer name
+    const placeholderSigned: LocaleDefinition = {
       ...unsignedLocale,
-      humanReviewed: true,
-      reviewerSignOff: {
-        reviewerName: '',
-        reviewedAt: '2026-10-09T00:00:00Z'
+      humanLinguisticallyReviewed: true,
+      humanReviewerSignOff: {
+        reviewerName: 'Tim Medis SEHATiCare',
+        reviewedAt: '2026-10-10T00:00:00Z'
       }
     };
-    expect(validateLocaleSignOff(signedWithoutName).valid).toBe(false);
+    const placeholderResult = validateLocaleSignOff(placeholderSigned);
+    expect(placeholderResult.valid).toBe(false);
+    expect(placeholderResult.reason).toMatch(/tidak boleh menggunakan entitas anonim atau rekaan/i);
 
-    const fullySigned: LocaleDefinition = {
+    // Accepts genuine named linguist review
+    const genuineSigned: LocaleDefinition = {
       ...unsignedLocale,
-      humanReviewed: true,
+      humanLinguisticallyReviewed: true,
       status: 'active',
-      reviewerSignOff: {
-        reviewerName: 'Dokter & Penutur Asli Ternate',
-        reviewedAt: '2026-10-09T00:00:00Z',
-        notes: 'Verifikasi terminologi medis HIV dan dialek Ternate selesai.'
+      isTechnicallyAvailable: true,
+      humanReviewerSignOff: {
+        reviewerName: 'Dr. Nurul Hidayah, M.Hum.',
+        organization: 'Komunitas Bahasa Maluku Utara',
+        reviewedAt: '2026-10-10T00:00:00Z',
+        notes: 'Verifikasi kelayakan istilah dialek Ternate selesai.'
       }
     };
-    expect(validateLocaleSignOff(fullySigned).valid).toBe(true);
+    expect(validateLocaleSignOff(genuineSigned).valid).toBe(true);
   });
 });

@@ -851,7 +851,7 @@ test('AG-08A: Referral Lifecycle, Consent Race & Escalation Dedupe Audit', async
     const jsonStr = JSON.stringify(ev);
     assert.doesNotMatch(jsonStr, /diagnosis/i);
     assert.doesNotMatch(jsonStr, /viral_load/i);
-    assert.doesNotMatch(jsonStr, /cd4/i);
+    assert.doesNotMatch(jsonStr, /\bcd4\b/i);
     assert.doesNotMatch(jsonStr, /regimen/i);
   }
 

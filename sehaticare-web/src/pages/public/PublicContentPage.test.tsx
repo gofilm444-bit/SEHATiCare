@@ -185,3 +185,43 @@ test('article detail view renders medical disclaimer, source reference, and comp
   expect(screen.getByText(/Butuh Ruang untuk Bercerita Lebih Lanjut\?/i)).toBeInTheDocument();
   expect(screen.getByRole('link', { name: /Curhat Anonim ke Konselor/i })).toHaveAttribute('href', '/login');
 });
+
+test('AG-11A public UI copy reflects medical precision and legal confidentiality boundaries', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes('/articles')) return json({ items: [] });
+    if (url.includes('/videos')) return json({ items: [] });
+    if (url.includes('/content-categories')) return json({ items: [] });
+    return json({ items: [] });
+  });
+
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter initialEntries={['/edukasi']}>
+      <PublicContentPage />
+    </MemoryRouter>
+  );
+
+  // Wait for loading to finish and U=U explainer to appear
+  expect(await screen.findByRole('heading', { name: /U=U: Undetectable = Untransmittable/i })).toBeInTheDocument();
+
+  // U=U explicit sexual transmission scope and suppression threshold
+  expect(
+    screen.getByText(/tidak dapat menularkan HIV kepada pasangan seksualnya/i)
+  ).toBeInTheDocument();
+  expect(screen.getByText(/Khusus Transmisi Seksual/i)).toBeInTheDocument();
+  expect(screen.getByText(/tidak berlaku tanpa kualifikasi untuk penularan darah atau jarum suntik/i)).toBeInTheDocument();
+
+  // FAQ PEP test
+  const faq2Button = screen.getByRole('button', { name: /Apa yang harus dilakukan jika saya baru saja terpapar dalam kurun <72 jam\?/i });
+  await user.click(faq2Button);
+  expect(screen.getByText(/idealnya <24 jam dan paling lambat 72 jam setelah paparan/i)).toBeInTheDocument();
+  expect(screen.getByText(/dikonsumsi selama 28 hari penuh/i)).toBeInTheDocument();
+
+  // FAQ Confidentiality test
+  const faq4Button = screen.getByRole('button', { name: /Bagaimana kerahasiaan data medis saya dilindungi\?/i });
+  await user.click(faq4Button);
+  expect(screen.getByText(/UU No\. 17 Tahun 2023 tentang Kesehatan/i)).toBeInTheDocument();
+  expect(screen.getByText(/Permenkes No\. 24 Tahun 2022 \(Pasal 28\)/i)).toBeInTheDocument();
+  expect(screen.getByText(/peramban web tidak menghapus riwayat penelusuran secara otomatis/i)).toBeInTheDocument();
+});

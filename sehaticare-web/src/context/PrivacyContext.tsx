@@ -4,7 +4,8 @@ import {
   getSelfUserRequest,
   logoutRequest,
   reauthenticateRequest,
-  updatePrivacyPreferencesRequest
+  updatePrivacyPreferencesRequest,
+  verifyReauthProofRequest
 } from '../api/client';
 import { useAuth } from './AuthContext';
 import { PrivacyPreferences, PrivacyPreferencesPatch } from '../types/privacy';
@@ -141,6 +142,16 @@ export function PrivacyProvider({ children }: { children: React.ReactNode }) {
     // 2. If re-auth is required, enforce valid in-RAM cryptographic proof
     if (preferences.require_reauth_to_unlock) {
       if (!reauthProof || reauthProof.userId !== user.id || reauthProof.expiresAt <= Date.now()) {
+        return;
+      }
+      try {
+        const verifyRes = await verifyReauthProofRequest(token, reauthProof.token);
+        if (verifyRes && verifyRes.valid === false) {
+          setReauthProof(null);
+          return;
+        }
+      } catch {
+        setReauthProof(null);
         return;
       }
     }

@@ -9,7 +9,7 @@ import { assertStorageReady } from '../voiceNotes/storage.service';
 import { attachmentKey, cleanupObject, downloadUrl, uploadUrl, validateAttachment, verifyAttachmentObject } from './stage4.storage';
 
 function role(req:FastifyRequest,reply:FastifyReply,allowed:string[]){if(!req.user||!allowed.includes(req.user.role)){void reply.code(403).send({message:'Forbidden'});return false}return true}
-async function optionalUser(req:FastifyRequest){try{await req.jwtVerify();const p=req.user;if(!p?.userId)return null;const u=await prisma.users.findUnique({where:{id:p.userId},select:{id:true,role:true,is_active:true,session_version:true,display_alias:true}});if(!u?.is_active||u.session_version!==p.sessionVersion)return null;return u}catch{return null}}
+async function optionalUser(req:FastifyRequest){try{await req.jwtVerify();const p=req.user;if(!p?.userId||p?.tokenUse!=='ACCESS'||!p?.sessionId)return null;const u=await prisma.users.findUnique({where:{id:p.userId},select:{id:true,role:true,is_active:true,session_version:true,display_alias:true}});if(!u?.is_active||u.session_version!==p.sessionVersion)return null;return u}catch{return null}}
 async function ownTicket(publicId:string,userId:string){return prisma.complaint_tickets.findFirst({where:{public_id:publicId,user_id:userId}})}
 async function officerTicket(publicId:string,user:any){return prisma.complaint_tickets.findFirst({where:{public_id:publicId,...(user.role==='SUPERVISOR'?{escalation_level:{gt:0}}:{assigned_officer_id:user.userId})}})}
 async function slaConfig(category:any,priority:number){return(await prisma.complaint_sla_configs.findFirst({where:{is_active:true,OR:[{category,priority},{category:null,priority:null}]},orderBy:[{category:'desc'},{priority:'desc'}]}))!}

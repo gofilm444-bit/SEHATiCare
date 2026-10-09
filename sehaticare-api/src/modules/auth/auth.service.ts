@@ -26,9 +26,11 @@ const sessionUserSelect = {
 
 async function issueSessionTokens(
   app: FastifyInstance,
-  user: { id: string; role: user_role; session_version: number }
+  user: { id: string; role: user_role; session_version: number },
+  sessionId?: string
 ) {
-  const payload = { userId: user.id, role: user.role, sessionVersion: user.session_version };
+  const sid = sessionId ?? randomUUID();
+  const payload = { userId: user.id, role: user.role, sessionVersion: user.session_version, sessionId: sid };
   const accessToken = app.auth.signAccessToken(payload);
   const refreshToken = app.auth.signRefreshToken(payload);
   const refreshExpiry = new Date(Date.now() + env.JWT_REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000);
@@ -167,10 +169,14 @@ export async function loginAnonymous(app: FastifyInstance, loginId: string, pass
 }
 
 export async function rotateRefreshToken(app: FastifyInstance, refreshToken: string) {
-  let payload: { userId: string; role: user_role; sessionVersion: number };
+  let payload: { userId: string; role: user_role; sessionVersion: number; sessionId: string; tokenUse: 'ACCESS' | 'REFRESH' | 'PRIVACY_REAUTH' };
   try {
     payload = app.auth.verifyRefreshToken(refreshToken);
   } catch {
+    throw new Error('Invalid session');
+  }
+
+  if (payload.tokenUse !== 'REFRESH' || !payload.sessionId) {
     throw new Error('Invalid session');
   }
 
@@ -200,7 +206,12 @@ export async function rotateRefreshToken(app: FastifyInstance, refreshToken: str
     if (revoked.count !== 1) throw new Error('Invalid session');
 
     if (payload.sessionVersion !== user.session_version) throw new Error('Invalid session');
-    const nextPayload = { userId: user.id, role: user.role, sessionVersion: user.session_version };
+    const nextPayload = {
+      userId: user.id,
+      role: user.role,
+      sessionVersion: user.session_version,
+      sessionId: payload.sessionId
+    };
     const accessToken = app.auth.signAccessToken(nextPayload);
     const nextRefreshToken = app.auth.signRefreshToken(nextPayload);
     await tx.refresh_tokens.create({

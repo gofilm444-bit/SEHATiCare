@@ -421,16 +421,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
         actorRole: request.user!.role,
         action: 'PRIVACY_REAUTH_SUCCESS'
       });
-      const proofToken = fastify.jwt.sign(
-        {
-          purpose: 'PRIVACY_REAUTH',
-          userId: request.user!.userId,
-          role: request.user!.role,
-          sessionVersion: request.user!.sessionVersion,
-          nonce: randomUUID()
-        },
-        { expiresIn: '5m' }
-      );
+      const proofToken = fastify.auth.signReauthProof({
+        userId: request.user!.userId,
+        role: request.user!.role,
+        sessionVersion: request.user!.sessionVersion,
+        sessionId: request.user!.sessionId,
+        nonce: randomUUID()
+      });
       return reply.send({
         ok: true,
         reauthenticated_at: now.toISOString(),
@@ -444,6 +441,12 @@ export default async function authRoutes(fastify: FastifyInstance) {
     '/verify-reauth',
     {
       preHandler: [authGuard],
+      config: {
+        rateLimit: {
+          ...sensitiveRateLimits.verifyReauth,
+          keyGenerator: (request) => `${request.ip}:${request.user?.userId ?? 'anon'}`
+        }
+      },
       schema: {
         tags: ['Auth'],
         security: [{ bearerAuth: [] }],
@@ -466,15 +469,12 @@ export default async function authRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const body = request.body as { proof_token?: string };
       try {
-        const decoded = fastify.jwt.verify<{
-          purpose?: string;
-          userId?: string;
-          sessionVersion?: number;
-        }>(body.proof_token!);
+        const decoded = fastify.auth.verifyReauthProof(body.proof_token!);
         if (
-          decoded.purpose !== 'PRIVACY_REAUTH' ||
+          decoded.tokenUse !== 'PRIVACY_REAUTH' ||
           decoded.userId !== request.user!.userId ||
-          decoded.sessionVersion !== request.user!.sessionVersion
+          decoded.sessionVersion !== request.user!.sessionVersion ||
+          decoded.sessionId !== request.user!.sessionId
         ) {
           return reply.status(403).send({ message: 'Bukti verifikasi tidak cocok dengan sesi aktif' });
         }

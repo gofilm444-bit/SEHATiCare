@@ -19,6 +19,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
+  JWT_REAUTH_SECRET: z.string().min(32).default('sehaticare_reauth_secret_2026_super_long_key_12345'),
   JWT_ACCESS_TTL_MINUTES: z.coerce.number().int().positive(),
   JWT_REFRESH_TTL_DAYS: z.coerce.number().int().positive(),
   INTERNAL_AI_TOKEN: z.string().min(10),

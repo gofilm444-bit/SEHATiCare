@@ -1,8 +1,27 @@
 import 'fastify';
 import '@fastify/jwt';
 
-type AppUserRole = 'PASIEN' | 'DOKTER' | 'ADMIN' | 'AI' | 'COUNSELOR' | 'COMPLAINT_OFFICER' | 'SUPERVISOR';
-type JwtUserPayload = { userId: string; role: AppUserRole; sessionVersion: number; sessionId?: string; purpose?: string; nonce?: string };
+export type AppUserRole = 'PASIEN' | 'DOKTER' | 'ADMIN' | 'AI' | 'COUNSELOR' | 'COMPLAINT_OFFICER' | 'SUPERVISOR';
+export type JwtTokenUse = 'ACCESS' | 'REFRESH' | 'PRIVACY_REAUTH';
+
+export type JwtUserPayload = {
+  userId: string;
+  role: AppUserRole;
+  sessionVersion: number;
+  sessionId: string;
+  tokenUse: JwtTokenUse;
+  purpose?: string;
+  nonce?: string;
+};
+
+export type ReauthProofPayload = {
+  userId: string;
+  role: AppUserRole;
+  sessionVersion: number;
+  sessionId: string;
+  tokenUse: 'PRIVACY_REAUTH';
+  nonce: string;
+};
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -16,3 +35,4 @@ declare module 'fastify' {
     user?: JwtUserPayload;
   }
 }
+

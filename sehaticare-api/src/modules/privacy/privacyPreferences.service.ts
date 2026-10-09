@@ -70,6 +70,17 @@ export async function updatePrivacyPreferences(
     dataToUpdate.auto_lock_minutes = patch.auto_lock_minutes;
   }
   if (patch.require_reauth_to_unlock !== undefined) {
+    if (patch.require_reauth_to_unlock === true) {
+      const user = await prisma.users.findUnique({
+        where: { id: userId },
+        select: { password_hash: true }
+      });
+      if (!user?.password_hash) {
+        const err = new Error('Akun tanpa kata sandi tidak dapat mengaktifkan verifikasi ulang kata sandi');
+        (err as any).statusCode = 400;
+        throw err;
+      }
+    }
     dataToUpdate.require_reauth_to_unlock = patch.require_reauth_to_unlock;
   }
   if (patch.discreet_page_titles !== undefined) {

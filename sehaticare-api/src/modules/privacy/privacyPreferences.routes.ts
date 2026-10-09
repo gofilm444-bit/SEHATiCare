@@ -61,8 +61,15 @@ export default async function privacyPreferencesRoutes(fastify: FastifyInstance)
     },
     async (request, reply) => {
       const patch = privacyPreferencesPatchSchema.parse(request.body);
-      const preferences = await updatePrivacyPreferences(request.user!.userId, request.user!.role, patch);
-      return reply.send(preferences);
+      try {
+        const preferences = await updatePrivacyPreferences(request.user!.userId, request.user!.role, patch);
+        return reply.send(preferences);
+      } catch (err: any) {
+        if (err?.statusCode === 400) {
+          return reply.status(400).send({ message: err.message });
+        }
+        throw err;
+      }
     }
   );
 }

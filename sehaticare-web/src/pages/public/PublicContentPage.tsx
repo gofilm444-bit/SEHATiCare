@@ -5,6 +5,8 @@ import { buttonClassName } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Icon } from '../../components/ui/icons';
 
+import { StaleContentDisclosure } from '../../components/pwa/ConnectivityBanner';
+
 type Article = {
   title:string;
   slug:string;
@@ -100,6 +102,7 @@ export function PublicContentPage() {
       <p>Artikel dan video edukasi terpilih. Pemutar video hanya diaktifkan setelah Anda menekan tombol putar.</p>
       <Link className="underline" to="/informasi-layanan">Lihat statistik kasus dan fasilitas layanan</Link>
     </header>
+    <StaleContentDisclosure />
     <section>
       <h2 className="text-2xl font-bold">Artikel</h2>
       <div className="mt-3 grid gap-4 md:grid-cols-2">

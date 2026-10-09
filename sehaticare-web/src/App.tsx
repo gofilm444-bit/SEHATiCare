@@ -40,6 +40,8 @@ import { ComplaintReassignmentPage } from './pages/stage4/ComplaintReassignmentP
 import { AdminProfessionalAssignmentsPage, CompanionAssignmentsPage, OutreachCasesPage } from './pages/stage4/ProfessionalRolePages';
 import { PatientCareMonitoringPage } from './pages/patient/PatientCareMonitoringPage';
 
+import { ConnectivityBanner } from './components/pwa/ConnectivityBanner';
+
 export function UnifiedConsultationDetail() {
   return <UnifiedConsultationDetailPage />;
 }
@@ -60,6 +62,7 @@ function HomeRedirect() {
 export default function App() {
   return (
     <PrivacyProvider>
+      <ConnectivityBanner />
       <Routes>
         <Route path="/" element={<PublicLandingPage />} />
         <Route path="/edukasi" element={<PublicContentPage />} />

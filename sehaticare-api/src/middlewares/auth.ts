@@ -2,6 +2,8 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '../db/prisma';
 
 export async function authGuard(request: FastifyRequest, reply: FastifyReply) {
+  reply.header('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  reply.header('Pragma', 'no-cache');
   try {
     await request.jwtVerify();
     const payload = request.user;

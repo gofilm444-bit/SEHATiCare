@@ -259,6 +259,35 @@ test('AG-09: Device-Level Safety & Privacy Foundation API', async () => {
       }
     }
 
+    // 13. AG-10 Offline Safe Header Isolation
+    const publicPortalRes = await app.inject({ method: 'GET', url: '/public/portal' });
+    assert.equal(publicPortalRes.headers['x-sehaticare-offline-safe'], '1');
+    assert.ok(publicPortalRes.headers['cache-control']?.includes('public'));
+
+    const publicArticlesRes = await app.inject({ method: 'GET', url: '/public/articles' });
+    assert.equal(publicArticlesRes.headers['x-sehaticare-offline-safe'], '1');
+
+    const publicServiceFacilitiesRes = await app.inject({ method: 'GET', url: '/public/service-facilities' });
+    assert.equal(publicServiceFacilitiesRes.headers['x-sehaticare-offline-safe'], '1');
+
+    // Private and sensitive routes MUST NOT emit the offline-safe marker
+    const privatePrefRes = await app.inject({
+      method: 'GET',
+      url: '/me/privacy-preferences',
+      headers: { authorization: `Bearer ${tokenA}` }
+    });
+    assert.equal(privatePrefRes.headers['x-sehaticare-offline-safe'], undefined);
+    assert.ok(privatePrefRes.headers['cache-control']?.includes('no-store'));
+    assert.ok(privatePrefRes.headers['cache-control']?.includes('private'));
+
+    const authMeRes = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: { authorization: `Bearer ${tokenA}` }
+    });
+    assert.equal(authMeRes.headers['x-sehaticare-offline-safe'], undefined);
+    assert.ok(authMeRes.headers['cache-control']?.includes('no-store'));
+
     // 12. Migration count invariant: exactly 26 migrations
     const migrationsDir = path.resolve(__dirname, '../prisma/migrations');
     const migrations = readdirSync(migrationsDir, { withFileTypes: true })

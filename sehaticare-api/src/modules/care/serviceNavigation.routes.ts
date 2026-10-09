@@ -86,7 +86,9 @@ export default async function serviceNavigationRoutes(app: FastifyInstance) {
   // PUBLIC SERVICE FACILITY DIRECTORY
   // ==========================================
 
-  app.get('/public/service-facilities', async (req) => {
+  app.get('/public/service-facilities', async (req, reply) => {
+    reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+    reply.header('X-SEHATICARE-OFFLINE-SAFE', '1');
     const query = serviceDirectoryQuerySchema.parse(req.query || {});
     const { facilities, total } = await getPublicServiceFacilities(query);
     return {
@@ -95,7 +97,9 @@ export default async function serviceNavigationRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get('/public/service-facilities/:facilityId', async (req) => {
+  app.get('/public/service-facilities/:facilityId', async (req, reply) => {
+    reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+    reply.header('X-SEHATICARE-OFFLINE-SAFE', '1');
     const { facilityId } = req.params as { facilityId: string };
     const facility = await getPublicServiceFacilityById(facilityId);
     return toPublicFacilityDto(facility);

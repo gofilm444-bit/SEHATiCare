@@ -219,7 +219,13 @@ describe('AG-10 Offline Safety & Resilience Component Suite', () => {
         '/api/complaints/track/TC12345',
         '/api/public/videos/v1/playback',
         '/voice-notes/audio.mp4',
-        '/complaint-attachments/doc.pdf'
+        '/complaint-attachments/doc.pdf',
+        '/uploads/user.png',
+        '/api/public/portal?foo=private-value',
+        '/api/public/articles?q=sensitive',
+        '/api/public/articles?search=sensitive',
+        '/api/public/articles?token=secret',
+        '/api/public/service-facilities?unknown=something'
       ];
 
       const mockCacheMap = new Map<string, string[]>();

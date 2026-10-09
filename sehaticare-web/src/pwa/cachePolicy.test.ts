@@ -109,12 +109,66 @@ describe('AG-10 Cache Policy & Classification', () => {
       expect(isAllowedPublicQueryParams(new URLSearchParams('custom_param=val'))).toBe(false);
     });
 
+    it('disallows any unknown query parameter keys', () => {
+      expect(isAllowedPublicQueryParams(new URLSearchParams('foo=private-value'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('note=sensitive'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('name=budi'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('address=jakarta'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('message=hello'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('reason=confidential'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('unknown=something'))).toBe(false);
+    });
+
+    it('rejects malformed, out-of-bounds, or free-text query values for allowed keys', () => {
+      // limit / pageSize: positive integer 1 to 200
+      expect(isAllowedPublicQueryParams(new URLSearchParams('limit=0'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('limit=-5'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('limit=201'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('limit=abc'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('limit=10%20OR%201=1'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('pageSize=0'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('pageSize=999'))).toBe(false);
+
+      // page: positive integer 1 to 1000
+      expect(isAllowedPublicQueryParams(new URLSearchParams('page=0'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('page=-1'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('page=1001'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('page=first'))).toBe(false);
+
+      // year: 4-digit valid year (2020-2099)
+      expect(isAllowedPublicQueryParams(new URLSearchParams('year=1999'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('year=2105'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('year=abcd'))).toBe(false);
+
+      // periodType: enum MONTHLY | QUARTERLY | SEMESTER | YEARLY
+      expect(isAllowedPublicQueryParams(new URLSearchParams('periodType=UNKNOWN'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('periodType=monthly'))).toBe(false);
+
+      // type: enum PUSKESMAS | RUMAH_SAKIT | KLINIK
+      expect(isAllowedPublicQueryParams(new URLSearchParams('type=HOSPITAL'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('type=puskesmas'))).toBe(false);
+
+      // service: enum COUNSELING | HIV_TESTING | ARV_SERVICE | DISABILITY_ACCESS | PHARMACY
+      expect(isAllowedPublicQueryParams(new URLSearchParams('service=UNKNOWN'))).toBe(false);
+
+      // category: slug format up to 64 chars
+      expect(isAllowedPublicQueryParams(new URLSearchParams('category=invalid with spaces'))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams(`category=${'a'.repeat(65)}`))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('category=<script>alert(1)</script>'))).toBe(false);
+
+      // regionId: bounded alphanumeric up to 64 chars
+      expect(isAllowedPublicQueryParams(new URLSearchParams(`regionId=${'x'.repeat(65)}`))).toBe(false);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('regionId=reg;drop table'))).toBe(false);
+    });
+
     it('allows controlled safe enum and pagination parameters', () => {
+      expect(isAllowedPublicQueryParams(new URLSearchParams(''))).toBe(true);
       expect(isAllowedPublicQueryParams(new URLSearchParams('limit=20'))).toBe(true);
       expect(isAllowedPublicQueryParams(new URLSearchParams('limit=20&page=1'))).toBe(true);
       expect(isAllowedPublicQueryParams(new URLSearchParams('regionId=reg-123&type=KLINIK'))).toBe(true);
       expect(isAllowedPublicQueryParams(new URLSearchParams('service=COUNSELING&year=2026'))).toBe(true);
       expect(isAllowedPublicQueryParams(new URLSearchParams('service_type=REFERRAL_INTAKE&region_id=reg-1'))).toBe(true);
+      expect(isAllowedPublicQueryParams(new URLSearchParams('category=pencegahan-dasar&page=2&limit=10'))).toBe(true);
     });
   });
 
@@ -134,10 +188,27 @@ describe('AG-10 Cache Policy & Classification', () => {
       expect(isPublicOfflineSafeApiRequest('/public/statistics')).toBe(true);
     });
 
-    it('strictly denies non-GET methods', () => {
+    it('strictly denies non-GET methods including HEAD', () => {
+      expect(isPublicOfflineSafeApiRequest('/public/portal', { method: 'HEAD' })).toBe(false);
+      expect(isPublicOfflineSafeApiRequest('/api/public/portal', { method: 'HEAD' })).toBe(false);
       expect(isPublicOfflineSafeApiRequest('/public/portal', { method: 'POST' })).toBe(false);
       expect(isPublicOfflineSafeApiRequest('/public/articles', { method: 'PUT' })).toBe(false);
       expect(isPublicOfflineSafeApiRequest('/public/facilities', { method: 'DELETE' })).toBe(false);
+    });
+
+    it('strictly denies candidate URLs bearing unknown or sensitive query parameters', () => {
+      expect(isPublicOfflineSafeApiRequest('/api/public/portal?foo=private-value')).toBe(false);
+      expect(isPublicOfflineSafeApiRequest('/api/public/articles?q=sensitive')).toBe(false);
+      expect(isPublicOfflineSafeApiRequest('/api/public/articles?search=sensitive')).toBe(false);
+      expect(isPublicOfflineSafeApiRequest('/api/public/articles?token=secret')).toBe(false);
+      expect(isPublicOfflineSafeApiRequest('/api/public/service-facilities?unknown=something')).toBe(false);
+      expect(isPublicOfflineSafeApiRequest('/api/public/service-facilities?limit=999')).toBe(false);
+    });
+
+    it('allows candidate URLs with valid structured query parameters or canonical query-less URL', () => {
+      expect(isPublicOfflineSafeApiRequest('/api/public/portal')).toBe(true);
+      expect(isPublicOfflineSafeApiRequest('/api/public/service-facilities?limit=20&page=1')).toBe(true);
+      expect(isPublicOfflineSafeApiRequest('/api/public/articles?category=pencegahan-dasar')).toBe(true);
     });
 
     it('strictly denies requests containing an Authorization header', () => {
@@ -290,6 +361,7 @@ describe('AG-10 Cache Policy & Classification', () => {
       expect(isStaticAssetUrl('/complaint-attachments/att-123')).toBe(false);
       expect(isStaticAssetUrl('/documents/license.pdf')).toBe(false);
       expect(isStaticAssetUrl('/playback/video.mp4')).toBe(false);
+      expect(isStaticAssetUrl('/uploads/user-avatar.jpg')).toBe(false);
     });
   });
 

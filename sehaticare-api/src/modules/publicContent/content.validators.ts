@@ -2,6 +2,49 @@ import { z } from 'zod';
 const status = z.enum(['DRAFT','REVIEW','PUBLISHED','ARCHIVED']);
 const safeText = (max:number) => z.string().trim().min(1).max(max).refine(v=>!/<\/?(?:script|iframe|object|embed)\b/i.test(v),'Unsafe markup');
 const httpsUrl = z.string().url().max(500).refine(v=>new URL(v).protocol==='https:','HTTPS required');
+
+export function isAuthoritativeSourceUrl(rawUrl?: string | null): { valid: boolean; reason?: string } {
+  if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) {
+    return { valid: false, reason: 'Source reference cannot be empty' };
+  }
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol !== 'https:') {
+      return { valid: false, reason: 'Source reference must use HTTPS protocol' };
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    
+    const allowedSuffixes = [
+      'who.int',
+      'kemkes.go.id',
+      'peraturan.go.id',
+      'nih.gov',
+      'cdc.gov',
+      'unaids.org',
+      'bpom.go.id',
+      'papdi.or.id',
+      'idai.or.id',
+      'ina-iac.or.id'
+    ];
+    
+    const isDomainAllowed = allowedSuffixes.some(
+      domain => hostname === domain || hostname.endsWith('.' + domain)
+    );
+    
+    if (!isDomainAllowed) {
+      return { valid: false, reason: 'Source reference must be from an authoritative health organization or regulatory domain' };
+    }
+
+    const cleanPath = parsed.pathname.replace(/\/+$/, '');
+    if (!cleanPath || cleanPath === '') {
+      return { valid: false, reason: 'Source reference must link to a specific document or fact sheet, not a generic homepage' };
+    }
+    
+    return { valid: true };
+  } catch {
+    return { valid: false, reason: 'Invalid URL format' };
+  }
+}
 const externalVideoUrl = httpsUrl.optional().refine((value) => {
   if (!value) return true;
   const url = new URL(value);

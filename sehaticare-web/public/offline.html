@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SEHATiCare - Offline</title>
+  <meta name="theme-color" content="#0f766e" />
+  <link rel="icon" href="/brand/app-icon-192.png" />
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 1.5rem;
+      padding: 2.25rem 1.75rem;
+      max-width: 28rem;
+      width: 100%;
+      box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.05);
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .brand-icon {
+      width: 3rem;
+      height: 3rem;
+      border-radius: 0.75rem;
+      border: 1px solid #e2e8f0;
+      object-fit: cover;
+      background: #ffffff;
+    }
+    .brand-text {
+      text-align: left;
+    }
+    .brand-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.2;
+    }
+    .brand-sub {
+      font-size: 0.75rem;
+      color: #64748b;
+    }
+    .status-badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #0f766e;
+      background-color: #ccfbf1;
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.3;
+      margin-bottom: 0.75rem;
+    }
+    p {
+      font-size: 0.9375rem;
+      line-height: 1.6;
+      color: #475569;
+      margin-bottom: 1.5rem;
+    }
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.75rem;
+      padding: 0.625rem 1.25rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      border-radius: 0.75rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background-color 0.15s ease;
+      border: none;
+    }
+    .btn-primary {
+      background-color: #0f766e;
+      color: #ffffff;
+    }
+    .btn-primary:hover {
+      background-color: #115e59;
+    }
+    .btn-secondary {
+      background-color: #f1f5f9;
+      color: #334155;
+      border: 1px solid #cbd5e1;
+    }
+    .btn-secondary:hover {
+      background-color: #e2e8f0;
+    }
+    footer {
+      margin-top: 1.5rem;
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <main class="card" role="main">
+    <div class="brand">
+      <img src="/brand/app-icon-192.png" alt="" class="brand-icon" onerror="this.style.display='none'" />
+      <div class="brand-text">
+        <div class="brand-title">SEHATiCare</div>
+        <div class="brand-sub">Ruang dukungan yang aman</div>
+      </div>
+    </div>
+
+    <div class="status-badge" role="status">Mode Luar Jaringan</div>
+    <h1>Koneksi tidak tersedia</h1>
+    <p>
+      Konten publik yang sudah tersimpan mungkin masih dapat dibuka.
+      Layanan pribadi memerlukan koneksi.
+    </p>
+
+    <div class="actions">
+      <button type="button" class="btn btn-primary" onclick="window.location.reload()">
+        Coba Lagi
+      </button>
+      <a href="/" class="btn btn-secondary">
+        Kembali ke Beranda
+      </a>
+    </div>
+  </main>
+
+  <footer>
+    &copy; 2026 SEHATiCare
+  </footer>
+</body>
+</html>

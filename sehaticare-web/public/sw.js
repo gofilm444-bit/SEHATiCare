@@ -1,5 +1,5 @@
 /* eslint-disable no-restricted-globals */
-// SEHATiCare Custom Service Worker — AG-10
+// SEHATiCare Custom Service Worker — AG-10 / AG-10A
 // Security Principle: DENY BY DEFAULT + EXPLICIT PUBLIC ALLOWLIST.
 // NEVER cache private, clinical, or authenticated data.
 
@@ -43,16 +43,37 @@ const PUBLIC_API_PATHS = [
   '/public/statistics'
 ];
 
-const DISALLOWED_QUERY_KEYS = [
-  'search',
-  'q',
-  'token',
-  'code',
-  'secret',
-  'email',
-  'phone',
-  'password'
+// Allowed query parameter keys for public cached content (enums, pagination, ids).
+// Any unknown query parameter causes immediate rejection (NETWORK ONLY / NEVER CACHE).
+const ALLOWED_PUBLIC_QUERY_KEYS = [
+  'limit',
+  'page',
+  'pageSize',
+  'regionId',
+  'region_id',
+  'type',
+  'service',
+  'service_type',
+  'year',
+  'periodType',
+  'category'
 ];
+
+// Strict validators for allowed public query parameter values.
+// Arbitrary text, tokens, long strings, multiline, or malformed enums are rejected.
+const PUBLIC_QUERY_VALUE_VALIDATORS = {
+  page: (val) => /^[1-9][0-9]{0,3}$/.test(val) && Number(val) <= 1000,
+  limit: (val) => /^[1-9][0-9]{0,2}$/.test(val) && Number(val) <= 200,
+  pageSize: (val) => /^[1-9][0-9]{0,2}$/.test(val) && Number(val) <= 200,
+  year: (val) => /^20[2-9][0-9]$/.test(val),
+  periodType: (val) => /^(?:MONTHLY|QUARTERLY|SEMESTER|YEARLY)$/.test(val),
+  type: (val) => /^(?:PUSKESMAS|RUMAH_SAKIT|KLINIK)$/.test(val),
+  service: (val) => /^(?:COUNSELING|HIV_TESTING|ARV_SERVICE|DISABILITY_ACCESS|PHARMACY)$/.test(val),
+  service_type: (val) => /^[A-Z_]{3,32}$/.test(val),
+  regionId: (val) => /^[a-zA-Z0-9_-]{1,64}$/.test(val),
+  region_id: (val) => /^[a-zA-Z0-9_-]{1,64}$/.test(val),
+  category: (val) => /^[a-z0-9-]{1,64}$/.test(val)
+};
 
 function stripApiPrefix(pathname) {
   if (pathname.startsWith('/api/')) {
@@ -64,13 +85,17 @@ function stripApiPrefix(pathname) {
   return pathname;
 }
 
-function hasDisallowedQuery(url) {
-  for (const key of url.searchParams.keys()) {
-    if (DISALLOWED_QUERY_KEYS.includes(key.toLowerCase())) {
-      return true;
+function isAllowedPublicQueryParams(searchParams) {
+  for (const [key, value] of searchParams.entries()) {
+    if (!ALLOWED_PUBLIC_QUERY_KEYS.includes(key)) {
+      return false;
+    }
+    const validator = PUBLIC_QUERY_VALUE_VALIDATORS[key];
+    if (!validator || !validator(value)) {
+      return false;
     }
   }
-  return false;
+  return true;
 }
 
 function isPublicApiCandidate(url) {
@@ -78,7 +103,7 @@ function isPublicApiCandidate(url) {
   if (canonical.includes('/playback')) {
     return false;
   }
-  if (hasDisallowedQuery(url)) {
+  if (!isAllowedPublicQueryParams(url.searchParams)) {
     return false;
   }
   return PUBLIC_API_PATHS.some((prefix) => canonical === prefix || canonical.startsWith(prefix + '/'));
@@ -90,7 +115,8 @@ function isStaticAsset(pathname) {
     p.includes('/voice-notes/') ||
     p.includes('/complaint-attachments/') ||
     p.includes('/documents/') ||
-    p.includes('/playback/')
+    p.includes('/playback/') ||
+    p.includes('/uploads/')
   ) {
     return false;
   }
@@ -121,6 +147,8 @@ async function trimCache(cacheName, maxEntries) {
 
 // ------------------------------------------------------------------
 // Lifecycle: install
+// Precache critical public assets. Do NOT call skipWaiting() here so
+// that a waiting worker forms naturally, allowing user-controlled update UX.
 // ------------------------------------------------------------------
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -130,12 +158,13 @@ self.addEventListener('install', (event) => {
       } catch (err) {
         console.warn('[SW] Precache asset fetch failure:', err);
       }
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
 // ------------------------------------------------------------------
 // Lifecycle: activate
+// Clean up outdated caches and claim existing clients.
 // ------------------------------------------------------------------
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -154,6 +183,7 @@ self.addEventListener('activate', (event) => {
 
 // ------------------------------------------------------------------
 // Lifecycle: message
+// Activated when user clicks "Perbarui" in the update banner.
 // ------------------------------------------------------------------
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
@@ -167,8 +197,8 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const request = event.request;
 
-  // Rule 1: Non-GET requests are strictly NETWORK ONLY
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
+  // Rule 1: Only GET requests may enter CacheStorage; non-GET (including HEAD) are strictly NETWORK ONLY
+  if (request.method !== 'GET') {
     return;
   }
 
@@ -225,17 +255,18 @@ async function handleNavigation(request, url) {
   if (isPublic) {
     try {
       const response = await fetch(request);
-      if (response && response.ok) {
-        const cache = await caches.open(SHELL_CACHE);
-        // Cache public root shell for subsequent offline renders
-        await cache.put('/', response.clone());
+      // ONLY update root shell if the navigation response is genuinely for root '/'
+      if (response && response.ok && (url.pathname === '/' || url.pathname === '')) {
+        const shellCache = await caches.open(SHELL_CACHE);
+        await shellCache.put('/', response.clone());
       }
       return response;
     } catch {
-      // Offline fallback for public navigation: return cached public shell or offline.html
-      const cachedShell = await caches.match('/');
+      // Offline fallback for public navigation: return cached public shell or offline.html specifically from SHELL_CACHE
+      const shellCache = await caches.open(SHELL_CACHE);
+      const cachedShell = await shellCache.match('/');
       if (cachedShell) return cachedShell;
-      const cachedOffline = await caches.match('/offline.html');
+      const cachedOffline = await shellCache.match('/offline.html');
       if (cachedOffline) return cachedOffline;
       return new Response('Koneksi tidak tersedia.', {
         status: 503,
@@ -245,11 +276,13 @@ async function handleNavigation(request, url) {
   }
 
   // PRIVATE / UNAPPROVED NAVIGATION: NETWORK ONLY
-  // If network fails, serve neutral offline fallback. NEVER serve cached public shell or old private page!
+  // If network fails, serve neutral offline fallback specifically from SHELL_CACHE.
+  // NEVER serve cached public shell or old private page!
   try {
     return await fetch(request);
   } catch {
-    const cachedOffline = await caches.match('/offline.html');
+    const shellCache = await caches.open(SHELL_CACHE);
+    const cachedOffline = await shellCache.match('/offline.html');
     if (cachedOffline) return cachedOffline;
     return new Response('Koneksi diperlukan untuk membuka layanan pribadi.', {
       status: 503,
@@ -259,15 +292,15 @@ async function handleNavigation(request, url) {
 }
 
 async function handleStaticAsset(request) {
-  const cached = await caches.match(request);
+  const staticCache = await caches.open(STATIC_CACHE);
+  const cached = await staticCache.match(request);
   if (cached) {
     return cached;
   }
   try {
     const response = await fetch(request);
     if (response && response.ok) {
-      const cache = await caches.open(STATIC_CACHE);
-      await cache.put(request, response.clone());
+      await staticCache.put(request, response.clone());
     }
     return response;
   } catch (err) {
@@ -294,8 +327,8 @@ async function handlePublicApi(request) {
       const isNotNoStore = !cacheControl.includes('no-store') && !cacheControl.includes('private');
 
       if (response.ok && isSafeMarker && isNotNoStore) {
-        const cache = await caches.open(PUBLIC_CONTENT_CACHE);
-        await cache.put(request, response.clone());
+        const publicCache = await caches.open(PUBLIC_CONTENT_CACHE);
+        await publicCache.put(request, response.clone());
         void trimCache(PUBLIC_CONTENT_CACHE, MAX_PUBLIC_ENTRIES);
       }
 
@@ -309,8 +342,9 @@ async function handlePublicApi(request) {
   try {
     return await networkPromise;
   } catch {
-    // Network failed or timed out: Fallback to safe public cached response
-    const cached = await caches.match(request);
+    // Network failed or timed out: Fallback to safe public cached response specifically from PUBLIC_CONTENT_CACHE
+    const publicCache = await caches.open(PUBLIC_CONTENT_CACHE);
+    const cached = await publicCache.match(request);
     if (cached) {
       return cached;
     }

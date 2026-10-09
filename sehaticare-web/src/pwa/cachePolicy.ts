@@ -106,24 +106,10 @@ const PUBLIC_API_EXACT_OR_PREFIXES = [
 ];
 
 /**
- * Prohibited query parameters that might contain user-entered search queries,
- * authentication tokens, recovery codes, or PII.
- */
-const DISALLOWED_QUERY_KEYS = new Set([
-  'search',
-  'q',
-  'token',
-  'code',
-  'secret',
-  'email',
-  'phone',
-  'password'
-]);
-
-/**
  * Allowed query parameters for public cached content (enums, pagination, ids).
+ * Any unknown query key causes immediate rejection (NETWORK ONLY / NEVER CACHE).
  */
-const ALLOWED_QUERY_KEYS = new Set([
+export const ALLOWED_PUBLIC_QUERY_KEYS = [
   'limit',
   'page',
   'pageSize',
@@ -135,18 +121,40 @@ const ALLOWED_QUERY_KEYS = new Set([
   'year',
   'periodType',
   'category'
-]);
+] as const;
+
+export const ALLOWED_QUERY_KEYS = new Set(ALLOWED_PUBLIC_QUERY_KEYS);
 
 /**
- * Inspects URL search parameters to ensure no free-text or sensitive keys exist.
+ * Strict validators for allowed public query parameter values.
+ * Arbitrary text, tokens, long strings, multiline, or malformed enums are rejected.
+ */
+export const PUBLIC_QUERY_VALUE_VALIDATORS: Record<string, (val: string) => boolean> = {
+  page: (val) => /^[1-9][0-9]{0,3}$/.test(val) && Number(val) <= 1000,
+  limit: (val) => /^[1-9][0-9]{0,2}$/.test(val) && Number(val) <= 200,
+  pageSize: (val) => /^[1-9][0-9]{0,2}$/.test(val) && Number(val) <= 200,
+  year: (val) => /^20[2-9][0-9]$/.test(val),
+  periodType: (val) => /^(?:MONTHLY|QUARTERLY|SEMESTER|YEARLY)$/.test(val),
+  type: (val) => /^(?:PUSKESMAS|RUMAH_SAKIT|KLINIK)$/.test(val),
+  service: (val) => /^(?:COUNSELING|HIV_TESTING|ARV_SERVICE|DISABILITY_ACCESS|PHARMACY)$/.test(val),
+  service_type: (val) => /^[A-Z_]{3,32}$/.test(val),
+  regionId: (val) => /^[a-zA-Z0-9_-]{1,64}$/.test(val),
+  region_id: (val) => /^[a-zA-Z0-9_-]{1,64}$/.test(val),
+  category: (val) => /^[a-z0-9-]{1,64}$/.test(val)
+};
+
+/**
+ * Inspects URL search parameters:
+ * 1. Denies any unknown parameter name (never cache unknown queries).
+ * 2. Enforces strict shape/bounds on all parameter values.
  */
 export function isAllowedPublicQueryParams(searchParams: URLSearchParams): boolean {
-  for (const [key] of searchParams.entries()) {
-    const lower = key.toLowerCase();
-    if (DISALLOWED_QUERY_KEYS.has(lower)) {
+  for (const [key, value] of searchParams.entries()) {
+    if (!ALLOWED_QUERY_KEYS.has(key as any)) {
       return false;
     }
-    if (!ALLOWED_QUERY_KEYS.has(key)) {
+    const validator = PUBLIC_QUERY_VALUE_VALIDATORS[key];
+    if (!validator || !validator(value)) {
       return false;
     }
   }
@@ -168,6 +176,7 @@ export function stripApiPrefix(pathname: string): string {
 
 /**
  * Verifies Gate 1: Public API request path and method safety.
+ * Only GET requests may enter CacheStorage; HEAD and non-GET are strictly NETWORK ONLY.
  */
 export function isPublicOfflineSafeApiRequest(
   urlOrString: URL | string,
@@ -177,7 +186,7 @@ export function isPublicOfflineSafeApiRequest(
   }
 ): boolean {
   const method = (options?.method ?? 'GET').toUpperCase();
-  if (method !== 'GET' && method !== 'HEAD') {
+  if (method !== 'GET') {
     return false;
   }
 
@@ -203,7 +212,7 @@ export function isPublicOfflineSafeApiRequest(
     return false;
   }
 
-  // Check if query params are privacy-safe
+  // Check if query params are privacy-safe (reject unknown keys and invalid shapes)
   if (parsedUrl.search && !isAllowedPublicQueryParams(parsedUrl.searchParams)) {
     return false;
   }
@@ -290,7 +299,8 @@ export function isStaticAssetUrl(pathname: string): boolean {
     path.includes('/voice-notes/') ||
     path.includes('/complaint-attachments/') ||
     path.includes('/documents/') ||
-    path.includes('/playback/')
+    path.includes('/playback/') ||
+    path.includes('/uploads/')
   ) {
     return false;
   }

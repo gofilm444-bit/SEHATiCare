@@ -12,6 +12,7 @@ import { DoctorQueuePage } from './pages/doctor/DoctorQueuePage';
 import { PatientDashboard } from './pages/PatientDashboard';
 import { DoctorConsultationDetail } from './pages/doctor/DoctorConsultationDetail';
 import { DoctorConsultationHistory } from './pages/doctor/DoctorConsultationHistory';
+import { DoctorContentReviewPage } from './pages/doctor/DoctorContentReviewPage';
 import { PatientEducationDetail } from './pages/PatientEducationDetail';
 import { PatientEducationList } from './pages/PatientEducationList';
 import { ProtectedRoute } from './routes/ProtectedRoute';
@@ -111,6 +112,7 @@ export default function App() {
             <Route path="/doctor/history" element={<DoctorConsultationHistory />} />
             <Route path="/doctor/consultations/:id" element={<DoctorConsultationDetail />} />
             <Route path="/doctor/schedules" element={<ControlSchedulesPage />} />
+            <Route path="/doctor/education-reviews" element={<DoctorContentReviewPage />} />
           </Route>
         </Route>
 

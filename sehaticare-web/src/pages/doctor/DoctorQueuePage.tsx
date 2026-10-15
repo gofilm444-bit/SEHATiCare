@@ -238,6 +238,9 @@ export function DoctorQueuePage() {
   return (
     <div className="page-shell">
       <PageHeader eyebrow="Ruang kerja dokter" title="Antrean konsultasi" description="Ambil dan lanjutkan hanya sesi yang ditugaskan kepada Anda. Ringkasan tidak menampilkan identitas atau isi keluhan." action={<div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => navigate('/doctor/education-reviews')}>
+            Telaah Edukasi
+          </Button>
           <Button variant="outline" size="sm" onClick={loadQueue} disabled={loading}>
             Perbarui
           </Button>

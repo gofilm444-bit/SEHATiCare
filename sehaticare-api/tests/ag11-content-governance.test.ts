@@ -10,6 +10,7 @@ test('AG-11A medical content governance: publication safety gate, seed idempoten
   const app = await buildApp();
   const marker = randomUUID();
   const adminId = randomUUID();
+  const doctorId = randomUUID();
   const adminEmail = `admin-ag11a-${marker}@example.test`;
   const createdArticleIds: string[] = [];
   const createdVideoIds: string[] = [];
@@ -119,6 +120,39 @@ test('AG-11A medical content governance: publication safety gate, seed idempoten
     assert.equal(failPublishHomepage.statusCode, 400);
     assert.match(failPublishHomepage.json().message, /specific document or fact sheet/i);
 
+    // Setup verified doctor user for clinical review
+    const doctorEmail = `doctor-ag11a-${marker}@example.test`;
+    await prisma.users.create({
+      data: {
+        id: doctorId,
+        email: doctorEmail,
+        full_name: 'dr. Penelaah Medis AG11B',
+        role: 'DOKTER',
+        password_hash: await bcrypt.hash('Doctor-ag11b-pass-2026', 12),
+        is_active: true,
+        updated_at: new Date()
+      }
+    });
+    await prisma.doctor_profiles.create({
+      data: {
+        user_id: doctorId,
+        verification_status: 'VERIFIED',
+        verified_at: new Date(),
+        puskesmas_name: 'Puskesmas Uji Coba AG11',
+        str_number: 'STR-999888777',
+        updated_at: new Date()
+      }
+    });
+
+    const docLogin = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: doctorEmail, password: 'Doctor-ag11b-pass-2026' }
+    });
+    assert.equal(docLogin.statusCode, 200);
+    const doctorToken = docLogin.json().access_token;
+    const doctorHeaders = { authorization: `Bearer ${doctorToken}` };
+
     // Gate 4: Update with valid authoritative specific document link
     await app.inject({
       method: 'PUT',
@@ -136,6 +170,56 @@ test('AG-11A medical content governance: publication safety gate, seed idempoten
       }
     });
 
+    // Gate 5: Direct DRAFT -> PUBLISHED must be rejected
+    const failDraftPublish = await app.inject({
+      method: 'PUT',
+      url: `/admin/content/articles/${draftArticle.id}/status`,
+      headers: adminHeaders,
+      payload: { status: 'PUBLISHED' }
+    });
+    assert.equal(failDraftPublish.statusCode, 400);
+
+    // Transition to REVIEW
+    const toReviewRes = await app.inject({
+      method: 'PUT',
+      url: `/admin/content/articles/${draftArticle.id}/status`,
+      headers: adminHeaders,
+      payload: { status: 'REVIEW' }
+    });
+    assert.equal(toReviewRes.statusCode, 200);
+
+    // Gate 6: REVIEW -> PUBLISHED without clinical approval must be rejected
+    const failNoReviewPublish = await app.inject({
+      method: 'PUT',
+      url: `/admin/content/articles/${draftArticle.id}/status`,
+      headers: adminHeaders,
+      payload: { status: 'PUBLISHED' }
+    });
+    assert.equal(failNoReviewPublish.statusCode, 400);
+
+    // Doctor inspects article and submits APPROVED review
+    const docArticleRes = await app.inject({
+      method: 'GET',
+      url: `/doctor/content-reviews/${draftArticle.id}`,
+      headers: doctorHeaders
+    });
+    assert.equal(docArticleRes.statusCode, 200);
+    const docHash = docArticleRes.json().current_content_hash;
+    assert.ok(docHash);
+
+    const docApproveRes = await app.inject({
+      method: 'POST',
+      url: `/doctor/content-reviews/${draftArticle.id}`,
+      headers: doctorHeaders,
+      payload: {
+        decision: 'APPROVED',
+        content_hash: docHash,
+        notes: 'Disetujui secara klinis sesuai pedoman WHO.'
+      }
+    });
+    assert.equal(docApproveRes.statusCode, 201);
+
+    // Gate 7: Admin now successfully publishes clinically approved article
     const successPublish = await app.inject({
       method: 'PUT',
       url: `/admin/content/articles/${draftArticle.id}/status`,
@@ -145,9 +229,10 @@ test('AG-11A medical content governance: publication safety gate, seed idempoten
     assert.equal(successPublish.statusCode, 200);
     assert.equal(successPublish.json().status, 'PUBLISHED');
 
-    // Verify reviewer_id and publisher_id are set to the real admin, not a fake identifier
+    // Verify reviewer_id is the real doctor and publisher_id is the real admin
     const publishedRecord = await prisma.education_articles.findUnique({ where: { id: draftArticle.id } });
     assert.equal(publishedRecord?.publisher_id, adminId);
+    assert.equal(publishedRecord?.reviewer_id, doctorId);
     assert.equal(publishedRecord?.is_published, true);
     assert.ok(publishedRecord?.published_at);
 
@@ -285,14 +370,16 @@ test('AG-11A medical content governance: publication safety gate, seed idempoten
     }
   } finally {
     if (createdArticleIds.length > 0) {
+      await prisma.article_clinical_reviews.deleteMany({ where: { article_id: { in: createdArticleIds } } });
       await prisma.education_articles.deleteMany({ where: { id: { in: createdArticleIds } } });
     }
     if (createdVideoIds.length > 0) {
       await prisma.education_videos.deleteMany({ where: { id: { in: createdVideoIds } } });
     }
-    await prisma.audit_logs.deleteMany({ where: { actor_user_id: adminId } });
-    await prisma.refresh_tokens.deleteMany({ where: { user_id: adminId } });
-    await prisma.users.deleteMany({ where: { id: adminId } });
+    await prisma.audit_logs.deleteMany({ where: { actor_user_id: { in: [adminId, doctorId] } } });
+    await prisma.doctor_profiles.deleteMany({ where: { user_id: doctorId } });
+    await prisma.refresh_tokens.deleteMany({ where: { user_id: { in: [adminId, doctorId] } } });
+    await prisma.users.deleteMany({ where: { id: { in: [adminId, doctorId] } } });
     await app.close();
     await prisma.$disconnect();
   }

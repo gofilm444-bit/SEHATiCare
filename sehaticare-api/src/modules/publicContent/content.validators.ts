@@ -68,6 +68,11 @@ export const facilitySchema=z.object({name:safeText(160),facility_type:z.enum(['
 export const regionSchema=z.object({code:z.string().regex(/^[A-Z0-9.-]{2,20}$/),name:safeText(120),type:z.enum(['PROVINCE','CITY_REGENCY','DISTRICT']),parent_id:z.string().uuid().optional()});
 export const categorySchema=z.object({name:safeText(100),slug:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(100),is_active:z.boolean().default(true)});
 export const statusSchema=z.object({status});
+export const clinicalReviewSchema=z.object({
+  decision: z.enum(['APPROVED', 'REJECTED']),
+  content_hash: z.string().regex(/^[a-f0-9]{64}$/, 'Valid 64-character hex hash required'),
+  notes: z.string().trim().max(2000).optional()
+});
 export const portalSectionEnum=z.enum(['hero','carouselImages','edukasiAwal','video','infografis','faq','banner']);
 export const portalItemCreateSchema=z.object({
   section:portalSectionEnum,

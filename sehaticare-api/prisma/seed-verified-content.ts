@@ -568,11 +568,21 @@ export async function runVerifiedContentSeed() {
     const categoryId = categoryIds.get(article.categorySlug);
     if (!categoryId) throw new Error(`Kategori tidak ditemukan: ${article.categorySlug}`);
 
-    const existing = await prisma.education_articles.findFirst({
-      where: { OR: [{ id: article.id }, { slug: article.slug }] }
+    const existingById = await prisma.education_articles.findUnique({
+      where: { id: article.id }
     });
 
-    if (!existing) {
+    if (!existingById) {
+      // Check if slug is used by another record
+      const existingBySlug = await prisma.education_articles.findUnique({
+        where: { slug: article.slug }
+      });
+      if (existingBySlug && existingBySlug.id !== article.id) {
+        console.warn(`[SEED CONFLICT] Slug '${article.slug}' belongs to existing article id '${existingBySlug.id}'. Skipping to protect data.`);
+        articlesConflicted++;
+        continue;
+      }
+
       // Create new baseline article in REVIEW status (Medical content governance)
       await prisma.education_articles.create({
         data: {
@@ -601,26 +611,50 @@ export async function runVerifiedContentSeed() {
       });
       articlesCreated++;
     } else {
-      // Conflict check: slug matches a different ID
-      if (existing.id !== article.id) {
-        console.warn(`[SEED CONFLICT] Slug '${article.slug}' belongs to existing article id '${existing.id}'. Skipping to protect data.`);
-        articlesConflicted++;
-        continue;
-      }
-
       // Safe ownership check: Has this record been edited or reviewed by a human?
-      const isHumanEdited = Boolean(existing.created_by || existing.updated_by || existing.reviewer_id);
+      const isHumanEdited = Boolean(existingById.created_by || existingById.updated_by || existingById.reviewer_id);
       if (isHumanEdited) {
         // PRESERVE human editorial work, publication status, and timestamps completely
         articlesPreserved++;
         continue;
       }
 
+      const isUnchanged =
+        existingById.slug === article.slug &&
+        existingById.title === article.title &&
+        existingById.summary === article.summary &&
+        existingById.body_markdown === article.body &&
+        existingById.category_id === categoryId &&
+        existingById.source_reference === article.source &&
+        existingById.reading_minutes === article.minutes &&
+        existingById.featured === article.featured &&
+        existingById.publication_status === 'REVIEW' &&
+        existingById.is_published === false &&
+        existingById.published_at === null;
+
+      if (isUnchanged) {
+        articlesPreserved++;
+        continue;
+      }
+
+      // If slug changed, ensure no other record uses the target slug
+      if (existingById.slug !== article.slug) {
+        const slugOwner = await prisma.education_articles.findUnique({
+          where: { slug: article.slug }
+        });
+        if (slugOwner && slugOwner.id !== article.id) {
+          console.warn(`[SEED CONFLICT] Cannot rename slug to '${article.slug}', already owned by '${slugOwner.id}'.`);
+          articlesConflicted++;
+          continue;
+        }
+      }
+
       // Safe transition for unreviewed seed-owned record:
       // Update medical text and valid authoritative sources, transition unreviewed material to REVIEW, preserve auditability
       await prisma.education_articles.update({
-        where: { id: existing.id },
+        where: { id: existingById.id },
         data: {
+          slug: article.slug,
           title: article.title,
           summary: article.summary,
           body_markdown: article.body,
@@ -680,6 +714,19 @@ export async function runVerifiedContentSeed() {
     } else {
       const isHumanEdited = Boolean(existing.created_by || existing.publisher_id);
       if (isHumanEdited) {
+        videosPreserved++;
+        continue;
+      }
+
+      const isVideoUnchanged =
+        existing.title === video.title &&
+        existing.description === video.description &&
+        existing.subtitle_text === '' &&
+        existing.transcript_text === '' &&
+        existing.publication_status === 'REVIEW' &&
+        existing.published_at === null;
+
+      if (isVideoUnchanged) {
         videosPreserved++;
         continue;
       }

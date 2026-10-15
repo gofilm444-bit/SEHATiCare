@@ -293,6 +293,25 @@ model education_articles {
   users_education_articles_created_byTousers users?              @relation("education_articles_created_byTousers", fields: [created_by], references: [id])
   users_education_articles_updated_byTousers users?              @relation("education_articles_updated_byTousers", fields: [updated_by], references: [id])
   portal_contents                            portal_contents[]
+  approved_content_hash                      String?             @db.VarChar(128)
+  article_clinical_reviews                   article_clinical_reviews[]
+}
+
+model article_clinical_reviews {
+  id               String             @id @db.Uuid
+  article_id       String             @db.Uuid
+  reviewer_id      String             @db.Uuid
+  decision         String             @db.VarChar(32)
+  content_hash     String             @db.VarChar(128)
+  source_reference String?            @db.Text
+  notes            String?            @db.Text
+  reviewed_at      DateTime           @default(now())
+  created_at       DateTime           @default(now())
+  article          education_articles @relation(fields: [article_id], references: [id], onDelete: Cascade)
+  reviewer         users              @relation("article_clinical_reviews_reviewerTousers", fields: [reviewer_id], references: [id])
+
+  @@index([article_id, decision, reviewed_at])
+  @@index([reviewer_id])
 }
 
 model regions {
@@ -540,6 +559,7 @@ model users {
   doctor_profiles_doctor_profiles_verified_byTousers      doctor_profiles[]            @relation("doctor_profiles_verified_byTousers")
   education_articles_education_articles_created_byTousers education_articles[]         @relation("education_articles_created_byTousers")
   education_articles_education_articles_updated_byTousers education_articles[]         @relation("education_articles_updated_byTousers")
+  article_clinical_reviews                                article_clinical_reviews[]   @relation("article_clinical_reviews_reviewerTousers")
   refresh_tokens                                          refresh_tokens[]
   voice_note_upload_sessions                              voice_note_upload_sessions[]
   voice_notes                                             voice_notes[]

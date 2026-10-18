@@ -107,6 +107,7 @@ export interface ValidApprovalResult {
     reviewer_id: string;
     decision: string;
     content_hash: string;
+    content_version: number;
     reviewed_at: Date;
     notes: string | null;
     reviewer_name: string;
@@ -114,20 +115,66 @@ export interface ValidApprovalResult {
 }
 
 /**
+ * Shared evaluation logic for whether an article is currently clinically approved.
+ * Guaranteed consistent across admin list, doctor list, detail, and publish gates.
+ */
+export function isArticleClinicallyApproved(
+  article: {
+    content_version?: number;
+    approved_content_version?: number | null;
+    approved_content_hash?: string | null;
+  },
+  latestReview: {
+    decision: string;
+    content_version?: number;
+    content_hash: string;
+  } | null,
+  currentHash: string
+): boolean {
+  if (!article.approved_content_hash || article.approved_content_hash !== currentHash) {
+    return false;
+  }
+  const articleVersion = article.content_version ?? 1;
+  const approvedVersion = article.approved_content_version ?? 1;
+  if (articleVersion !== approvedVersion) {
+    return false;
+  }
+  if (!latestReview) {
+    return false;
+  }
+  if (latestReview.decision !== 'APPROVED') {
+    return false;
+  }
+  const reviewVersion = latestReview.content_version ?? 1;
+  if (reviewVersion !== articleVersion) {
+    return false;
+  }
+  if (latestReview.content_hash !== currentHash) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Verifies that an article has valid, authoritative clinical approval:
- * 1. An approval record exists with decision = 'APPROVED'
- * 2. The approved content_hash matches the CURRENT canonical hash of the article
- * 3. The reviewer was and remains an active, verified DOKTER
+ * 1. An approval record exists on the ACTIVE content_version.
+ * 2. The LATEST decision on this active version is 'APPROVED' (not REJECTED).
+ * 3. The approved content_hash matches the CURRENT canonical hash of the article.
+ * 4. The reviewer was and remains an active, verified DOKTER.
  */
 export async function getArticleLatestValidApproval(
   articleId: string,
-  currentHash: string
+  currentHash: string,
+  activeVersion: number = 1,
+  tx?: any
 ): Promise<ValidApprovalResult> {
-  const latestApproval = await prisma.article_clinical_reviews.findFirst({
+  const db = tx ?? prisma;
+
+  // Retrieve the latest review specifically on the active content version
+  const latestReview = await db.article_clinical_reviews.findFirst({
     where: {
       article_id: articleId,
-      decision: 'APPROVED',
-      content_hash: currentHash
+      content_version: activeVersion
     },
     orderBy: { reviewed_at: 'desc' },
     include: {
@@ -139,15 +186,32 @@ export async function getArticleLatestValidApproval(
     }
   });
 
-  if (!latestApproval) {
+  if (!latestReview) {
     return {
       valid: false,
       statusCode: 400,
-      message: 'Persetujuan klinis dokter terverifikasi diperlukan sebelum artikel dapat diterbitkan'
+      message: 'Persetujuan klinis dokter terverifikasi diperlukan untuk versi artikel saat ini sebelum dapat diterbitkan'
     };
   }
 
-  const reviewer = latestApproval.reviewer;
+  // The latest decision on the active revision is authoritative
+  if (latestReview.decision !== 'APPROVED') {
+    return {
+      valid: false,
+      statusCode: 400,
+      message: 'Keputusan telaah klinis terkini adalah penolakan (REJECTED). Diperlukan persetujuan klinis baru sebelum publikasi.'
+    };
+  }
+
+  if (latestReview.content_hash !== currentHash) {
+    return {
+      valid: false,
+      statusCode: 400,
+      message: 'Hash konten yang disetujui tidak cocok dengan konten artikel saat ini. Persetujuan klinis dokter terverifikasi diperlukan sebelum artikel dapat diterbitkan.'
+    };
+  }
+
+  const reviewer = latestReview.reviewer;
   if (!reviewer || !reviewer.is_active || reviewer.role !== 'DOKTER') {
     return {
       valid: false,
@@ -170,13 +234,14 @@ export async function getArticleLatestValidApproval(
     statusCode: 200,
     message: 'Persetujuan medis klinis sah',
     approval: {
-      id: latestApproval.id,
-      article_id: latestApproval.article_id,
-      reviewer_id: latestApproval.reviewer_id,
-      decision: latestApproval.decision,
-      content_hash: latestApproval.content_hash,
-      reviewed_at: latestApproval.reviewed_at,
-      notes: latestApproval.notes,
+      id: latestReview.id,
+      article_id: latestReview.article_id,
+      reviewer_id: latestReview.reviewer_id,
+      decision: latestReview.decision,
+      content_hash: latestReview.content_hash,
+      content_version: latestReview.content_version ?? activeVersion,
+      reviewed_at: latestReview.reviewed_at,
+      notes: latestReview.notes,
       reviewer_name: reviewer.full_name
     }
   };

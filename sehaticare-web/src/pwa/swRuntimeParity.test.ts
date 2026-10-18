@@ -416,5 +416,154 @@ describe('AG-10A Service Worker Runtime Policy Parity & Cache-Key Privacy Audit'
         expect(ALL_CACHES).toContain(cacheName);
       }
     });
+
+    it('purges cached article and listing caches upon receiving 404 or 410, preventing offline resurrection and enforcing 24h limit', async () => {
+      const mockCaches = createMockCacheStorage();
+      const mockFetch = vi.fn();
+
+      const listeners: Record<string, Function[]> = {};
+
+      const mockSelf: Record<string, any> = {
+        location: { origin: 'http://localhost' },
+        addEventListener: (event: string, handler: Function) => {
+          if (!listeners[event]) listeners[event] = [];
+          listeners[event].push(handler);
+        },
+        clients: { claim: vi.fn().mockResolvedValue(undefined) },
+        skipWaiting: vi.fn()
+      };
+
+      class MockResponse {
+        status: number;
+        headers: Headers;
+        ok: boolean;
+        body: any;
+        constructor(body: any, init?: any) {
+          this.body = body;
+          this.status = init?.status ?? 200;
+          this.ok = this.status >= 200 && this.status < 300;
+          this.headers = new Headers(init?.headers);
+        }
+        clone() {
+          return new MockResponse(this.body, { status: this.status, headers: this.headers });
+        }
+      }
+
+      const scriptWithRunner = `
+        ${swSource}
+      `;
+
+      const fn = new Function('self', 'caches', 'fetch', 'Response', scriptWithRunner);
+      fn(mockSelf, mockCaches, mockFetch, MockResponse);
+
+      const fetchListener = listeners['fetch']?.[0];
+      expect(fetchListener).toBeDefined();
+
+      async function dispatch(req: any) {
+        let respondWithPromise: Promise<any> | null = null;
+        const event = {
+          request: req,
+          respondWith: (p: Promise<any>) => {
+            respondWithPromise = p;
+          }
+        };
+        fetchListener(event);
+        if (respondWithPromise) {
+          return await respondWithPromise;
+        }
+        return null;
+      }
+
+      // Step 1: Article is published and successfully cached with 200 OK and safe marker
+      const articleUrl = 'http://localhost/api/public/articles/pencegahan-hiv-vertikal';
+      const listUrl = 'http://localhost/api/public/articles';
+      const portalUrl = 'http://localhost/api/public/portal';
+
+      mockFetch.mockResolvedValueOnce(new MockResponse('{"title":"Pencegahan HIV"}', {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sehaticare-offline-safe': '1',
+          'cache-control': 'public, max-age=60',
+          'date': new Date().toUTCString()
+        }
+      }));
+      await dispatch({ method: 'GET', url: articleUrl, headers: new Headers() });
+
+      // Cache list and portal as well
+      mockFetch.mockResolvedValueOnce(new MockResponse('{"items":[]}', {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sehaticare-offline-safe': '1',
+          'cache-control': 'public, max-age=60',
+          'date': new Date().toUTCString()
+        }
+      }));
+      await dispatch({ method: 'GET', url: listUrl, headers: new Headers() });
+
+      mockFetch.mockResolvedValueOnce(new MockResponse('{"sections":[]}', {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sehaticare-offline-safe': '1',
+          'cache-control': 'public, max-age=60',
+          'date': new Date().toUTCString()
+        }
+      }));
+      await dispatch({ method: 'GET', url: portalUrl, headers: new Headers() });
+
+      const publicCache = mockCaches._map.get(CACHE_NAMES.PUBLIC_CONTENT);
+      expect(publicCache).toBeDefined();
+      expect(publicCache!.has(articleUrl)).toBe(true);
+      expect(publicCache!.has(listUrl)).toBe(true);
+      expect(publicCache!.has(portalUrl)).toBe(true);
+
+      // Step 2: Article is withdrawn / unpublished on server -> returns 404 (or 410)
+      mockFetch.mockResolvedValueOnce(new MockResponse('{"message":"Not found"}', {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      const purgeRes = await dispatch({ method: 'GET', url: articleUrl, headers: new Headers() });
+      expect(purgeRes.status).toBe(404);
+
+      // Verify article cache was purged immediately
+      expect(publicCache!.has(articleUrl)).toBe(false);
+      // Verify listing caches were purged immediately
+      expect(publicCache!.has(listUrl)).toBe(false);
+      expect(publicCache!.has(portalUrl)).toBe(false);
+
+      // Step 3: Device goes offline (network fails) -> MUST NOT resurrect old article
+      mockFetch.mockRejectedValueOnce(new Error('Network offline'));
+      const offlineRes = await dispatch({ method: 'GET', url: articleUrl, headers: new Headers() });
+      expect(offlineRes.status).toBe(503);
+      expect(offlineRes.body).toContain('belum tersimpan');
+
+      // Step 4: Enforce 24-hour fallback age limit
+      // Store an article cached 25 hours ago
+      const expiredDate = new Date(Date.now() - 25 * 3600 * 1000).toUTCString();
+      const expiredArticleUrl = 'http://localhost/api/public/articles/arsip-kadaluwarsa';
+      const expiredCache = await mockCaches.open(CACHE_NAMES.PUBLIC_CONTENT);
+      await expiredCache.put(
+        expiredArticleUrl,
+        new MockResponse('{"title":"Kedaluwarsa"}', {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'x-sehaticare-offline-safe': '1',
+            'date': expiredDate
+          }
+        })
+      );
+      expect(publicCache!.has(expiredArticleUrl)).toBe(true);
+
+      // Offline attempt on expired cached article
+      mockFetch.mockRejectedValueOnce(new Error('Network offline'));
+      const expiredAttemptRes = await dispatch({ method: 'GET', url: expiredArticleUrl, headers: new Headers() });
+      expect(expiredAttemptRes.status).toBe(503);
+      expect(expiredAttemptRes.body).toContain('kedaluwarsa');
+      // Expired entry was purged from cache
+      expect(publicCache!.has(expiredArticleUrl)).toBe(false);
+    });
   });
 });

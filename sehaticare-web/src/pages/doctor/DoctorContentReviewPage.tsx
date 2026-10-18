@@ -52,7 +52,9 @@ export function DoctorContentReviewPage() {
   const [inspectLoading, setInspectLoading] = useState(false);
   const [notes, setNotes] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
-  const [filter, setFilter] = useState<'ALL' | 'REVIEW' | 'PUBLISHED'>('REVIEW');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 10;
 
   const options = useMemo(() => ({ token, onUnauthorized: handleUnauthorized }), [token, handleUnauthorized]);
 
@@ -60,13 +62,19 @@ export function DoctorContentReviewPage() {
     setLoading(true);
     setMessage(null);
     try {
-      const queryParam = filter === 'ALL' ? '' : `?status=${filter}`;
+      const statusParam = filter === 'ALL' ? '' : `status=${filter}`;
+      const params = new URLSearchParams();
+      if (statusParam) params.set('status', filter);
+      params.set('page', String(page));
+      params.set('limit', String(pageSize));
+
       const response = await apiFetch<{ items: ArticleItem[]; total: number }>(
-        `/doctor/content-reviews${queryParam}`,
+        `/doctor/content-reviews?${params.toString()}`,
         {},
         options
       );
       setItems(response.items);
+      setTotal(response.total);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Gagal memuat daftar artikel.');
     } finally {
@@ -76,7 +84,12 @@ export function DoctorContentReviewPage() {
 
   useEffect(() => {
     void loadArticles();
-  }, [filter, token]);
+  }, [filter, page, token]);
+
+  const handleFilterChange = (newFilter: 'ALL' | 'REVIEW' | 'PUBLISHED') => {
+    setFilter(newFilter);
+    setPage(1);
+  };
 
   const inspectArticle = async (id: string) => {
     setInspectLoading(true);
@@ -156,21 +169,21 @@ export function DoctorContentReviewPage() {
         <Button
           variant={filter === 'REVIEW' ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setFilter('REVIEW')}
+          onClick={() => handleFilterChange('REVIEW')}
         >
           Perlu Telaah (REVIEW)
         </Button>
         <Button
           variant={filter === 'PUBLISHED' ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setFilter('PUBLISHED')}
+          onClick={() => handleFilterChange('PUBLISHED')}
         >
           Sudah Terbit (PUBLISHED)
         </Button>
         <Button
           variant={filter === 'ALL' ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setFilter('ALL')}
+          onClick={() => handleFilterChange('ALL')}
         >
           Semua Status
         </Button>
@@ -180,7 +193,14 @@ export function DoctorContentReviewPage() {
         {/* Article List */}
         <Card>
           <CardHeader>
-            <CardTitle>Daftar Artikel ({items.length})</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>Antrean Telaah ({total})</CardTitle>
+              {total > pageSize && (
+                <span className="text-xs text-slate-500">
+                  Hal. {page} dari {Math.ceil(total / pageSize) || 1}
+                </span>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {loading ? (
@@ -231,6 +251,31 @@ export function DoctorContentReviewPage() {
                   </div>
                 </div>
               ))
+            )}
+
+            {/* Pagination Controls */}
+            {total > pageSize && (
+              <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1 || loading}
+                >
+                  Halaman Sebelumnya
+                </Button>
+                <span className="text-xs text-slate-500">
+                  {page} / {Math.ceil(total / pageSize)}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page * pageSize >= total || loading}
+                >
+                  Halaman Berikutnya
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>

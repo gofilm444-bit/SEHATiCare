@@ -14,5 +14,112 @@ export default async function publicContentRoutes(app:FastifyInstance){
  app.get('/videos/:id/playback',async(req,reply)=>{reply.header('Cache-Control','private, no-store');const v=await prisma.education_videos.findFirst({where:{id:(req.params as any).id,publication_status:'PUBLISHED',source_type:'UPLOAD'},select:{storage_key:true}});if(!v?.storage_key)return reply.code(404).send({message:'Video playback not found'});return{playback_url:await generateDownloadUrl(v.storage_key)}});
  app.get('/facilities',async(req,reply)=>{const p=pagination(req.query);reply.headers(cache);const where={is_active:true,verification_status:'VERIFIED' as const,...(p.regionId?{region_id:p.regionId}:{}),...(p.type?{facility_type:p.type}:{}),...(p.q?{name:{contains:p.q,mode:'insensitive' as const}}:{}),...(p.service?{facility_services:{some:{service:p.service,verified:true}}}:{})};const [items,total]=await Promise.all([prisma.health_facilities.findMany({where,skip:p.skip,take:p.limit,orderBy:{name:'asc'},select:{id:true,name:true,facility_type:true,district_name:true,address:true,public_contact:true,service_hours:true,description:true,verified_at:true,updated_at:true,is_sample:true,source_name:true,regions:{select:{code:true,name:true}},facility_services:{where:{verified:true},select:{service:true}}}}),prisma.health_facilities.count({where})]);return{page:p.page,limit:p.limit,total,items}});
  app.get('/facilities/:id',async(req,reply)=>{reply.headers(cache);const f=await prisma.health_facilities.findFirst({where:{id:(req.params as any).id,is_active:true,verification_status:'VERIFIED'},select:{id:true,name:true,facility_type:true,district_name:true,address:true,public_contact:true,service_hours:true,description:true,verified_at:true,updated_at:true,is_sample:true,source_name:true,regions:{select:{code:true,name:true}},facility_services:{where:{verified:true},select:{service:true}}}});return f??reply.code(404).send({message:'Facility not found'})});
- app.get('/portal',async(req,reply)=>{reply.headers(cache);const rows=await prisma.portal_contents.findMany({where:{publication_status:'PUBLISHED'},orderBy:[{display_order:'asc'},{created_at:'asc'}],select:{id:true,section:true,title:true,summary:true,link_url:true,media_url:true,article_id:true,video_id:true,display_order:true,updated_at:true,article:{select:{id:true,slug:true,title:true,summary:true}},video:{select:{id:true,title:true,description:true,source_type:true,external_url:true,thumbnail_key:true,thumbnail_alt:true}}}});const grouped:Record<string,typeof rows>={hero:[],carouselImages:[],edukasiAwal:[],video:[],infografis:[],faq:[],banner:[]};for(const item of rows){if(!grouped[item.section])grouped[item.section]=[];grouped[item.section].push(item)}return{items:rows,grouped}});
+  app.get('/portal', async (req, reply) => {
+    reply.headers(cache);
+    const rows = await prisma.portal_contents.findMany({
+      where: { publication_status: 'PUBLISHED' },
+      orderBy: [{ display_order: 'asc' }, { created_at: 'asc' }],
+      select: {
+        id: true,
+        section: true,
+        title: true,
+        summary: true,
+        link_url: true,
+        media_url: true,
+        article_id: true,
+        video_id: true,
+        display_order: true,
+        updated_at: true,
+        article: {
+          select: {
+            id: true,
+            slug: true,
+            title: true,
+            summary: true,
+            publication_status: true,
+            is_published: true
+          }
+        },
+        video: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            source_type: true,
+            external_url: true,
+            thumbnail_key: true,
+            thumbnail_alt: true,
+            publication_status: true
+          }
+        }
+      }
+    });
+
+    const sanitizedRows = rows.map((item) => {
+      let articleData: { id: string; slug: string; title: string; summary: string } | null = null;
+      let articleId: string | null = null;
+      if (item.article && item.article.publication_status === 'PUBLISHED' && item.article.is_published) {
+        articleData = {
+          id: item.article.id,
+          slug: item.article.slug,
+          title: item.article.title,
+          summary: item.article.summary
+        };
+        articleId = item.article_id;
+      }
+
+      let videoData: {
+        id: string;
+        title: string;
+        description: string;
+        source_type: string;
+        external_url: string | null;
+        thumbnail_key: string | null;
+        thumbnail_alt: string | null;
+      } | null = null;
+      let videoId: string | null = null;
+      if (item.video && item.video.publication_status === 'PUBLISHED') {
+        videoData = {
+          id: item.video.id,
+          title: item.video.title,
+          description: item.video.description,
+          source_type: item.video.source_type,
+          external_url: item.video.external_url,
+          thumbnail_key: item.video.thumbnail_key,
+          thumbnail_alt: item.video.thumbnail_alt
+        };
+        videoId = item.video_id;
+      }
+
+      return {
+        id: item.id,
+        section: item.section,
+        title: item.title,
+        summary: item.summary,
+        link_url: item.link_url,
+        media_url: item.media_url,
+        article_id: articleId,
+        video_id: videoId,
+        display_order: item.display_order,
+        updated_at: item.updated_at,
+        article: articleData,
+        video: videoData
+      };
+    });
+
+    const grouped: Record<string, typeof sanitizedRows> = {
+      hero: [],
+      carouselImages: [],
+      edukasiAwal: [],
+      video: [],
+      infografis: [],
+      faq: [],
+      banner: []
+    };
+    for (const item of sanitizedRows) {
+      if (!grouped[item.section]) grouped[item.section] = [];
+      grouped[item.section].push(item);
+    }
+    return { items: sanitizedRows, grouped };
+  });
 }

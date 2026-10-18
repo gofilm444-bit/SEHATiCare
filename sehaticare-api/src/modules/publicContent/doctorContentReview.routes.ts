@@ -41,6 +41,7 @@ export default async function doctorContentReviewRoutes(app: FastifyInstance) {
               id: true,
               decision: true,
               content_hash: true,
+              content_version: true,
               reviewed_at: true,
               reviewer_id: true,
               notes: true
@@ -55,9 +56,12 @@ export default async function doctorContentReviewRoutes(app: FastifyInstance) {
       const currentHash = computeArticleContentHash(art as any);
       const latestReview = art.article_clinical_reviews[0] ?? null;
       const isApprovedForCurrent = Boolean(
+        art.approved_content_hash === currentHash &&
+        art.approved_content_version === art.content_version &&
         latestReview &&
         latestReview.decision === 'APPROVED' &&
-        latestReview.content_hash === currentHash
+        latestReview.content_hash === currentHash &&
+        latestReview.content_version === art.content_version
       );
 
       return {
@@ -73,6 +77,8 @@ export default async function doctorContentReviewRoutes(app: FastifyInstance) {
         featured: art.featured,
         publication_status: art.publication_status,
         is_published: art.is_published,
+        content_version: art.content_version,
+        approved_content_version: art.approved_content_version,
         current_content_hash: currentHash,
         approved_content_hash: art.approved_content_hash,
         is_clinically_approved: isApprovedForCurrent,
@@ -104,9 +110,12 @@ export default async function doctorContentReviewRoutes(app: FastifyInstance) {
     const currentHash = computeArticleContentHash(article as any);
     const latestReview = article.article_clinical_reviews[0] ?? null;
     const isApprovedForCurrent = Boolean(
+      article.approved_content_hash === currentHash &&
+      article.approved_content_version === article.content_version &&
       latestReview &&
       latestReview.decision === 'APPROVED' &&
-      latestReview.content_hash === currentHash
+      latestReview.content_hash === currentHash &&
+      latestReview.content_version === article.content_version
     );
 
     return {
@@ -124,6 +133,8 @@ export default async function doctorContentReviewRoutes(app: FastifyInstance) {
       featured: article.featured,
       publication_status: article.publication_status,
       is_published: article.is_published,
+      content_version: article.content_version,
+      approved_content_version: article.approved_content_version,
       current_content_hash: currentHash,
       approved_content_hash: article.approved_content_hash,
       is_clinically_approved: isApprovedForCurrent,
@@ -131,6 +142,7 @@ export default async function doctorContentReviewRoutes(app: FastifyInstance) {
         id: r.id,
         decision: r.decision,
         content_hash: r.content_hash,
+        content_version: r.content_version,
         source_reference: r.source_reference,
         notes: r.notes,
         reviewed_at: r.reviewed_at,
@@ -143,99 +155,156 @@ export default async function doctorContentReviewRoutes(app: FastifyInstance) {
     const id = (req.params as any).id;
     const b = clinicalReviewSchema.parse(req.body);
 
-    const article = await prisma.education_articles.findUnique({ where: { id } });
-    if (!article) return reply.code(404).send({ message: 'Artikel tidak ditemukan' });
-
-    // Compute canonical hash of current content
-    const currentHash = computeArticleContentHash(article as any);
-
-    // Verify hash provided by client matches the server-computed canonical hash
-    if (b.content_hash !== currentHash) {
-      return reply.code(409).send({
-        message: 'Konten artikel telah berubah sejak dimuat untuk penelaahan. Muat ulang artikel versi terkini sebelum memberikan telaah medis.'
-      });
-    }
-
-    // If decision is APPROVED, source_reference must be authoritative
-    if (b.decision === 'APPROVED') {
-      if (!article.source_reference || !article.source_reference.trim()) {
-        return reply.code(400).send({
-          message: 'Artikel tidak memiliki referensi sumber resmi. Penelaahan medis memerlukan tautan sumber valid.'
-        });
-      }
-      const authCheck = isAuthoritativeSourceUrl(article.source_reference);
-      if (!authCheck.valid) {
-        return reply.code(400).send({
-          message: authCheck.reason || 'Sumber referensi artikel harus berasal dari otoritas kesehatan resmi.'
-        });
-      }
-    }
-
-    const reviewId = randomUUID();
-
-    // Persist review evidence atomically
-    const result = await prisma.$transaction(async (tx) => {
-      const review = await tx.article_clinical_reviews.create({
-        data: {
-          id: reviewId,
-          article_id: article.id,
-          reviewer_id: req.user!.userId,
-          decision: b.decision,
-          content_hash: currentHash,
-          source_reference: article.source_reference,
-          notes: b.notes ?? null,
-          reviewed_at: new Date()
+    try {
+      const reviewResult = await prisma.$transaction(async (tx) => {
+        // 1. Lock article row with SELECT ... FOR UPDATE
+        const lockedRows = await tx.$queryRaw<any[]>`
+          SELECT * FROM "education_articles" WHERE id = ${id}::uuid FOR UPDATE
+        `;
+        const article = lockedRows[0];
+        if (!article) {
+          throw new Error('NOT_FOUND');
         }
+
+        // Restrict review to eligible workflow states (REVIEW only)
+        if (article.publication_status !== 'REVIEW') {
+          const err: any = new Error(`Artikel dalam status ${article.publication_status} tidak dapat ditelaah. Hanya artikel dalam status REVIEW yang dapat ditelaah klinis.`);
+          err.statusCode = 400;
+          throw err;
+        }
+
+        // Verify doctor reviewer eligibility atomically inside transaction
+        const reviewerUser = await tx.users.findUnique({
+          where: { id: req.user!.userId },
+          include: { doctor_profiles_doctor_profiles_user_idTousers: true }
+        });
+
+        if (!reviewerUser || !reviewerUser.is_active || reviewerUser.role !== 'DOKTER') {
+          const err: any = new Error('Hanya dokter aktif yang dapat melakukan penelaahan medis klinis');
+          err.statusCode = 403;
+          throw err;
+        }
+
+        const profile = reviewerUser.doctor_profiles_doctor_profiles_user_idTousers;
+        if (!profile || profile.verification_status !== 'VERIFIED') {
+          const err: any = new Error('Profil dokter belum terverifikasi secara resmi');
+          err.statusCode = 403;
+          throw err;
+        }
+
+        // Compute canonical hash of current locked content
+        const currentHash = computeArticleContentHash(article);
+
+        // Verify submitted hash matches current canonical hash of the article
+        if (b.content_hash !== currentHash) {
+          const err: any = new Error('Konten artikel telah berubah sejak dimuat untuk penelaahan. Muat ulang artikel versi terkini sebelum memberikan telaah medis.');
+          err.statusCode = 409;
+          throw err;
+        }
+
+        // If decision is APPROVED, source_reference must be authoritative
+        if (b.decision === 'APPROVED') {
+          if (!article.source_reference || !article.source_reference.trim()) {
+            const err: any = new Error('Artikel tidak memiliki referensi sumber resmi. Penelaahan medis memerlukan tautan sumber valid.');
+            err.statusCode = 400;
+            throw err;
+          }
+          const authCheck = isAuthoritativeSourceUrl(article.source_reference);
+          if (!authCheck.valid) {
+            const err: any = new Error(authCheck.reason || 'Sumber referensi artikel harus berasal dari otoritas kesehatan resmi.');
+            err.statusCode = 400;
+            throw err;
+          }
+        }
+
+        const reviewId = randomUUID();
+
+        // Persist review evidence atomically with active content_version
+        const review = await tx.article_clinical_reviews.create({
+          data: {
+            id: reviewId,
+            article_id: article.id,
+            reviewer_id: req.user!.userId,
+            decision: b.decision,
+            content_hash: currentHash,
+            content_version: article.content_version,
+            source_reference: article.source_reference,
+            notes: b.notes ?? null,
+            reviewed_at: new Date()
+          }
+        });
+
+        if (b.decision === 'APPROVED') {
+          const updateCount = await tx.$executeRaw`
+            UPDATE "education_articles"
+            SET
+              reviewer_id = ${req.user!.userId}::uuid,
+              approved_content_hash = ${currentHash},
+              approved_content_version = ${article.content_version},
+              updated_at = NOW()
+            WHERE id = ${article.id}::uuid AND content_version = ${article.content_version}
+          `;
+          if (updateCount === 0) {
+            throw new Error('CONCURRENT_MUTATION');
+          }
+        } else {
+          // REJECTED reverts article to DRAFT, invalidates approval, and increments version
+          const newVersion = article.content_version + 1;
+          const updateCount = await tx.$executeRaw`
+            UPDATE "education_articles"
+            SET
+              reviewer_id = NULL,
+              approved_content_hash = NULL,
+              approved_content_version = NULL,
+              publication_status = 'DRAFT'::publication_status,
+              is_published = false,
+              published_at = NULL,
+              content_version = ${newVersion},
+              updated_at = NOW()
+            WHERE id = ${article.id}::uuid AND content_version = ${article.content_version}
+          `;
+          if (updateCount === 0) {
+            throw new Error('CONCURRENT_MUTATION');
+          }
+        }
+
+        // Record Audit Log inside the SAME transaction
+        await recordAuditLog(tx, {
+          actorUserId: req.user!.userId,
+          action: 'ARTICLE_CLINICAL_REVIEW',
+          entityType: 'education_article',
+          entityId: article.id,
+          meta: {
+            decision: b.decision,
+            content_hash: currentHash,
+            content_version: article.content_version,
+            reviewer_id: req.user!.userId,
+            notes: b.notes ?? null,
+            review_id: review.id
+          }
+        });
+
+        return review;
       });
 
-      if (b.decision === 'APPROVED') {
-        await tx.education_articles.update({
-          where: { id: article.id },
-          data: {
-            reviewer_id: req.user!.userId,
-            approved_content_hash: currentHash,
-            updated_at: new Date()
-          }
-        });
-      } else {
-        // REJECTED moves article to DRAFT
-        await tx.education_articles.update({
-          where: { id: article.id },
-          data: {
-            reviewer_id: null,
-            approved_content_hash: null,
-            publication_status: 'DRAFT',
-            is_published: false,
-            published_at: null,
-            updated_at: new Date()
-          }
-        });
+      return reply.code(201).send({
+        id: reviewResult.id,
+        article_id: reviewResult.article_id,
+        decision: reviewResult.decision,
+        content_hash: reviewResult.content_hash,
+        content_version: reviewResult.content_version,
+        reviewed_at: reviewResult.reviewed_at
+      });
+    } catch (err: any) {
+      if (err.message === 'NOT_FOUND') return reply.code(404).send({ message: 'Artikel tidak ditemukan' });
+      if (err.message === 'CONCURRENT_MUTATION') {
+        return reply.code(409).send({ message: 'Konten artikel telah berubah sejak dimuat untuk penelaahan. Muat ulang artikel versi terkini sebelum memberikan telaah medis.' });
       }
-
-      return review;
-    });
-
-    await recordAuditLog(prisma, {
-      actorUserId: req.user!.userId,
-      action: 'ARTICLE_CLINICAL_REVIEW',
-      entityType: 'education_article',
-      entityId: article.id,
-      meta: {
-        decision: b.decision,
-        content_hash: currentHash,
-        reviewer_id: req.user!.userId,
-        notes: b.notes ?? null,
-        review_id: result.id
+      if (err.statusCode) {
+        return reply.code(err.statusCode).send({ message: err.message });
       }
-    });
-
-    return reply.code(201).send({
-      id: result.id,
-      article_id: result.article_id,
-      decision: result.decision,
-      content_hash: result.content_hash,
-      reviewed_at: result.reviewed_at
-    });
+      throw err;
+    }
   };
 
   // Support both POST /:id and POST /:id/review

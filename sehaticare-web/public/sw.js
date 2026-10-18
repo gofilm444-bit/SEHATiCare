@@ -321,6 +321,26 @@ async function handlePublicApi(request) {
       const response = await fetch(request, { signal: controller.signal });
       clearTimeout(timeoutId);
 
+      // Definitively withdrawn or unpublished content (404/410):
+      // Purge cached copy and related listing caches immediately so offline mode cannot revive it
+      if (response.status === 404 || response.status === 410) {
+        try {
+          const publicCache = await caches.open(PUBLIC_CONTENT_CACHE);
+          await publicCache.delete(request);
+          const keys = await publicCache.keys();
+          for (const key of keys) {
+            const u = new URL(key.url);
+            const canonical = stripApiPrefix(u.pathname);
+            if (canonical === '/public/articles' || canonical === '/public/portal' || canonical === '/public/videos') {
+              await publicCache.delete(key);
+            }
+          }
+        } catch {
+          // ignore cache deletion errors
+        }
+        return response;
+      }
+
       // GATE 2: Server response verification
       const isSafeMarker = response.headers.get('x-sehaticare-offline-safe') === '1';
       const cacheControl = response.headers.get('cache-control') || '';
@@ -346,6 +366,21 @@ async function handlePublicApi(request) {
     const publicCache = await caches.open(PUBLIC_CONTENT_CACHE);
     const cached = await publicCache.match(request);
     if (cached) {
+      // Documented fallback lifetime: 24 hours (86,400,000 ms)
+      const dateHeader = cached.headers.get('date');
+      if (dateHeader) {
+        const cachedTime = Date.parse(dateHeader);
+        if (!isNaN(cachedTime) && (Date.now() - cachedTime > 86400000)) {
+          await publicCache.delete(request);
+          return new Response(
+            JSON.stringify({ message: 'Konten tersimpan telah kedaluwarsa. Sambungkan perangkat ke internet.' }),
+            {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' }
+            }
+          );
+        }
+      }
       return cached;
     }
     // Fail cleanly if not in cache

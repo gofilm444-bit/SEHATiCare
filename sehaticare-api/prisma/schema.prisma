@@ -294,6 +294,8 @@ model education_articles {
   users_education_articles_updated_byTousers users?              @relation("education_articles_updated_byTousers", fields: [updated_by], references: [id])
   portal_contents                            portal_contents[]
   approved_content_hash                      String?             @db.VarChar(128)
+  content_version                            Int                 @default(1)
+  approved_content_version                   Int?
   article_clinical_reviews                   article_clinical_reviews[]
 }
 
@@ -303,6 +305,7 @@ model article_clinical_reviews {
   reviewer_id      String             @db.Uuid
   decision         String             @db.VarChar(32)
   content_hash     String             @db.VarChar(128)
+  content_version  Int                @default(1)
   source_reference String?            @db.Text
   notes            String?            @db.Text
   reviewed_at      DateTime           @default(now())
@@ -311,6 +314,7 @@ model article_clinical_reviews {
   reviewer         users              @relation("article_clinical_reviews_reviewerTousers", fields: [reviewer_id], references: [id])
 
   @@index([article_id, decision, reviewed_at])
+  @@index([article_id, content_version, reviewed_at])
   @@index([reviewer_id])
 }
 

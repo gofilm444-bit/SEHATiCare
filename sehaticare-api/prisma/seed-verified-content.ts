@@ -509,27 +509,37 @@ export async function runVerifiedContentSeed() {
 
   const now = new Date();
 
-  // 1. Archive legacy sample rows safely
+  // 1. Archive legacy sample rows safely without mutating already archived rows
   const [archivedArticles, archivedVideos, archivedStatistics, hiddenFacilities] = await prisma.$transaction([
     prisma.education_articles.updateMany({
       where: {
         OR: [
           { slug: 'contoh-edukasi-aman-data-uji' },
           { slug: 'kesehatan-reproduksi-dan-pencegahan', source_reference: null }
-        ]
+        ],
+        publication_status: { not: 'ARCHIVED' }
       },
       data: { publication_status: 'ARCHIVED', is_published: false, featured: false, updated_at: now }
     }),
     prisma.education_videos.updateMany({
-      where: { id: '24000000-0000-4000-8000-000000000001' },
+      where: {
+        id: '24000000-0000-4000-8000-000000000001',
+        publication_status: { not: 'ARCHIVED' }
+      },
       data: { publication_status: 'ARCHIVED', updated_at: now }
     }),
     prisma.case_statistics.updateMany({
-      where: { is_sample: true },
+      where: {
+        is_sample: true,
+        publication_status: { not: 'ARCHIVED' }
+      },
       data: { publication_status: 'ARCHIVED', updated_at: now }
     }),
     prisma.health_facilities.updateMany({
-      where: { is_sample: true },
+      where: {
+        is_sample: true,
+        is_active: true
+      },
       data: { is_active: false, updated_at: now }
     })
   ]);
@@ -611,64 +621,9 @@ export async function runVerifiedContentSeed() {
       });
       articlesCreated++;
     } else {
-      // Safe ownership check: Has this record been edited or reviewed by a human?
-      const isHumanEdited = Boolean(existingById.created_by || existingById.updated_by || existingById.reviewer_id);
-      if (isHumanEdited) {
-        // PRESERVE human editorial work, publication status, and timestamps completely
-        articlesPreserved++;
-        continue;
-      }
-
-      const isUnchanged =
-        existingById.slug === article.slug &&
-        existingById.title === article.title &&
-        existingById.summary === article.summary &&
-        existingById.body_markdown === article.body &&
-        existingById.category_id === categoryId &&
-        existingById.source_reference === article.source &&
-        existingById.reading_minutes === article.minutes &&
-        existingById.featured === article.featured &&
-        existingById.publication_status === 'REVIEW' &&
-        existingById.is_published === false &&
-        existingById.published_at === null;
-
-      if (isUnchanged) {
-        articlesPreserved++;
-        continue;
-      }
-
-      // If slug changed, ensure no other record uses the target slug
-      if (existingById.slug !== article.slug) {
-        const slugOwner = await prisma.education_articles.findUnique({
-          where: { slug: article.slug }
-        });
-        if (slugOwner && slugOwner.id !== article.id) {
-          console.warn(`[SEED CONFLICT] Cannot rename slug to '${article.slug}', already owned by '${slugOwner.id}'.`);
-          articlesConflicted++;
-          continue;
-        }
-      }
-
-      // Safe transition for unreviewed seed-owned record:
-      // Update medical text and valid authoritative sources, transition unreviewed material to REVIEW, preserve auditability
-      await prisma.education_articles.update({
-        where: { id: existingById.id },
-        data: {
-          slug: article.slug,
-          title: article.title,
-          summary: article.summary,
-          body_markdown: article.body,
-          category_id: categoryId,
-          source_reference: article.source,
-          reading_minutes: article.minutes,
-          featured: article.featured,
-          publication_status: 'REVIEW',
-          is_published: false,
-          published_at: null,
-          updated_at: now
-        }
-      });
-      articlesUpdated++;
+      // Routine seed invariant: Existing articles are completely preserved without modifying editorial timestamps,
+      // human edits, approval history, or publication decisions.
+      articlesPreserved++;
     }
   }
 
@@ -712,38 +667,8 @@ export async function runVerifiedContentSeed() {
       });
       videosCreated++;
     } else {
-      const isHumanEdited = Boolean(existing.created_by || existing.publisher_id);
-      if (isHumanEdited) {
-        videosPreserved++;
-        continue;
-      }
-
-      const isVideoUnchanged =
-        existing.title === video.title &&
-        existing.description === video.description &&
-        existing.subtitle_text === '' &&
-        existing.transcript_text === '' &&
-        existing.publication_status === 'REVIEW' &&
-        existing.published_at === null;
-
-      if (isVideoUnchanged) {
-        videosPreserved++;
-        continue;
-      }
-
-      await prisma.education_videos.update({
-        where: { id: existing.id },
-        data: {
-          title: video.title,
-          description: video.description,
-          subtitle_text: '',
-          transcript_text: '',
-          publication_status: 'REVIEW',
-          published_at: null,
-          updated_at: now
-        }
-      });
-      videosUpdated++;
+      // Routine seed invariant: Existing videos are preserved without mutation or timestamp updates
+      videosPreserved++;
     }
   }
 

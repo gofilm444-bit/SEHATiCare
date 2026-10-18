@@ -31,7 +31,8 @@ export const DEPENDENCY_ORDERED_MIGRATIONS: string[] = [
   '20260821090000_care_signals_follow_up_escalation',
   '20260822090000_confidential_referral_service_navigation',
   '20260823090000_privacy_mode_device_safety',
-  '20260824090000_article_clinical_reviews'
+  '20260824090000_article_clinical_reviews',
+  '20260825090000_content_version_concurrency'
 ];
 
 interface DatabaseState {

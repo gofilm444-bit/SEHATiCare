@@ -288,12 +288,12 @@ test('AG-09: Device-Level Safety & Privacy Foundation API', async () => {
     assert.equal(authMeRes.headers['x-sehaticare-offline-safe'], undefined);
     assert.ok(authMeRes.headers['cache-control']?.includes('no-store'));
 
-    // 12. Migration count invariant: exactly 27 migrations (including AG-11B clinical review lock)
+    // 12. Migration count invariant: exactly 28 migrations (including AG-11B1 revision concurrency)
     const migrationsDir = path.resolve(__dirname, '../prisma/migrations');
     const migrations = readdirSync(migrationsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name);
-    assert.equal(migrations.length, 27, 'Expected exactly 27 database migrations');
+    assert.equal(migrations.length, 28, 'Expected exactly 28 database migrations');
     assert.ok(
       migrations.includes('20260823090000_privacy_mode_device_safety'),
       'Migration 20260823090000_privacy_mode_device_safety must be present'

@@ -317,3 +317,43 @@ export function isStaticAssetUrl(pathname: string): boolean {
 
   return false;
 }
+
+/**
+ * Maximum lifetime for cached public health content served as offline fallback.
+ * Documented at 24 hours (86,400,000 ms). Expired entries are discarded rather than served stale.
+ */
+export const PUBLIC_FALLBACK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Verifies if an HTTP response status definitively indicates that the resource is
+ * no longer available or has been withdrawn (404 Not Found, 410 Gone).
+ */
+export function isWithdrawnResponse(status: number): boolean {
+  return status === 404 || status === 410;
+}
+
+/**
+ * Verifies if a cached HTTP response has exceeded the documented fallback max age.
+ */
+export function isCachedEntryExpired(
+  dateHeader: string | null,
+  maxAgeMs: number = PUBLIC_FALLBACK_MAX_AGE_MS,
+  now: number = Date.now()
+): boolean {
+  if (!dateHeader) return false;
+  const parsed = Date.parse(dateHeader);
+  if (isNaN(parsed)) return false;
+  return now - parsed > maxAgeMs;
+}
+
+/**
+ * Identifies public API collection endpoints whose cache should be invalidated
+ * whenever an individual item is withdrawn or modified.
+ */
+export function isCollectionCachePath(canonicalPath: string): boolean {
+  return (
+    canonicalPath === '/public/articles' ||
+    canonicalPath === '/public/portal' ||
+    canonicalPath === '/public/videos'
+  );
+}
